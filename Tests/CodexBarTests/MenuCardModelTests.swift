@@ -561,6 +561,71 @@ struct FactoryMenuCardModelTests {
 
 struct MiniMaxMenuCardModelTests {
     @Test
+    func `minimax menu metrics respect usage bar fill setting`() throws {
+        let now = Date()
+        let snapshot = MiniMaxUsageSnapshot(
+            planName: "Max",
+            availablePrompts: nil,
+            currentPrompts: nil,
+            remainingPrompts: nil,
+            windowMinutes: nil,
+            usedPercent: nil,
+            resetsAt: nil,
+            updatedAt: now,
+            services: [
+                MiniMaxServiceUsage(
+                    serviceType: "text-generation",
+                    windowType: "5 hours",
+                    timeRange: "10:00-15:00(UTC+8)",
+                    usage: 2,
+                    limit: 10,
+                    percent: 20,
+                    resetsAt: now.addingTimeInterval(3600),
+                    resetDescription: "Resets in 1 hour"),
+                MiniMaxServiceUsage(
+                    serviceType: "text-generation",
+                    windowType: "Weekly",
+                    timeRange: "08/03 00:00 - 08/10 00:00(UTC+8)",
+                    usage: 35,
+                    limit: 100,
+                    percent: 35,
+                    resetsAt: now.addingTimeInterval(5 * 24 * 3600),
+                    resetDescription: "Resets in 5 days"),
+            ]).toUsageSnapshot()
+        let metadata = try #require(ProviderDefaults.metadata[.minimax])
+
+        func model(showUsed: Bool) -> UsageMenuCardView.Model {
+            UsageMenuCardView.Model.make(.init(
+                provider: .minimax,
+                metadata: metadata,
+                snapshot: snapshot,
+                credits: nil,
+                creditsError: nil,
+                dashboard: nil,
+                dashboardError: nil,
+                tokenSnapshot: nil,
+                tokenError: nil,
+                account: AccountInfo(email: nil, plan: nil),
+                isRefreshing: false,
+                lastError: nil,
+                usageBarsShowUsed: showUsed,
+                resetTimeDisplayStyle: .countdown,
+                tokenCostUsageEnabled: false,
+                showOptionalCreditsAndExtraUsage: true,
+                hidePersonalInfo: false,
+                now: now))
+        }
+
+        let remaining = model(showUsed: false)
+        #expect(remaining.metrics.map(\.percent) == [80, 65])
+        #expect(remaining.metrics.map(\.percentStyle.rawValue) == ["left", "left"])
+
+        let used = model(showUsed: true)
+        #expect(used.metrics.map(\.percent) == [20, 35])
+        #expect(used.metrics.map(\.percentStyle.rawValue) == ["used", "used"])
+    }
+
+    @Test
     func `minimax service metrics use codex aligned quota copy`() throws {
         let now = Date()
         let minimax = MiniMaxUsageSnapshot(

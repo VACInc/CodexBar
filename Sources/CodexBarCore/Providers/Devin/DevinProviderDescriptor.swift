@@ -55,17 +55,19 @@ public enum DevinProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "Devin cost summary is not supported." }),
-            presentation: ProviderUsagePresentation(costPresenter: { snapshot in
-                guard let cost = snapshot.providerCost, cost.period == "Extra usage balance" else {
-                    return ProviderCostPresentation()
-                }
-                return ProviderCostPresentation(
-                    showsGenericFallback: false,
-                    balances: [ProviderCostPresentation.Balance(
-                        label: "Extra usage",
-                        amount: cost.used,
-                        currencyCode: cost.currencyCode)])
-            }),
+            presentation: ProviderUsagePresentation(
+                costPresenter: { snapshot in
+                    guard let cost = snapshot.providerCost, cost.period == "Extra usage balance" else {
+                        return ProviderCostPresentation()
+                    }
+                    return ProviderCostPresentation(
+                        showsGenericFallback: false,
+                        balances: [ProviderCostPresentation.Balance(
+                            label: "Extra usage",
+                            amount: cost.used,
+                            currencyCode: cost.currencyCode)])
+                },
+                menuCard: ProviderMenuCardPresentation(costVisibilityResolver: { $0.showOptionalUsage })),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [DevinWebFetchStrategy()] })),

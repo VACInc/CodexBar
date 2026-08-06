@@ -229,6 +229,7 @@ enum CompactMetricFormatter {
     }
 
     static func costMetricLabel(_ label: String, provider: ProviderInstanceID) -> String {
+        // Provider-specific by design: old Codex widget timelines lack the API-estimate billing disclaimer.
         guard provider == .codex else { return "\(label) cost" }
         // Existing widget timelines may predate the estimate labels. Do not leave a bare
         // dollar value until the app next republishes it.
@@ -573,31 +574,21 @@ struct WidgetUsageRow: Identifiable, Equatable {
     }
 
     static func smallWidgetRowLimit(for entry: WidgetSnapshot.ProviderEntry) -> Int? {
-        if entry.provider == .kimi {
-            return 3
-        }
-        return self.antigravityQuotaSummaryRowLimit(for: entry, limit: 2)
+        self.widgetRowLimit(for: entry, family: .small)
     }
 
     static func mediumWidgetRowLimit(for entry: WidgetSnapshot.ProviderEntry) -> Int? {
-        if entry.provider == .kimi {
-            return 3
-        }
-        return self.antigravityQuotaSummaryRowLimit(for: entry, limit: 3)
+        self.widgetRowLimit(for: entry, family: .medium)
     }
 
-    private static func antigravityQuotaSummaryRowLimit(
+    private static func widgetRowLimit(
         for entry: WidgetSnapshot.ProviderEntry,
-        limit: Int) -> Int?
+        family: ProviderWidgetFamily) -> Int?
     {
-        guard entry.provider == .antigravity,
-              entry.usageRows?.contains(where: {
-                  $0.id.hasPrefix("antigravity-quota-summary-")
-              }) == true
-        else {
-            return nil
-        }
-        return limit
+        guard let provider = entry.provider.firstPartyProvider else { return nil }
+        return ProviderDescriptorRegistry.descriptor(for: provider).presentation.widgetRowLimit(
+            rows: entry.usageRows,
+            family: family)
     }
 
     static func rows(
@@ -651,6 +642,7 @@ struct WidgetUsageRow: Identifiable, Equatable {
             rows = defaultRows.filter { $0.percentLeft != nil }
         }
         guard let limit else { return rows }
+        // Provider-specific by design: Antigravity medium widgets select one constrained row per model family.
         if entry.provider == .antigravity,
            limit >= 2,
            rows.contains(where: { $0.id.hasPrefix("antigravity-quota-summary-") })
@@ -688,6 +680,7 @@ struct WidgetUsageRow: Identifiable, Equatable {
         provider: ProviderInstanceID,
         now: Date) -> [WidgetUsageRow]
     {
+        // Provider-specific by design: Codex weekly exhaustion suppresses its paired legacy session widget row.
         guard provider == .codex,
               let weekly = snapshots.first(where: { $0.id == "weekly" })?.window,
               weekly.remainingPercent <= 0,
@@ -705,6 +698,7 @@ struct WidgetUsageRow: Identifiable, Equatable {
         for rowID: String,
         entry: WidgetSnapshot.ProviderEntry) -> RateWindow?
     {
+        // Provider-specific by design: old Codex timelines reconstruct session/weekly windows by duration.
         guard entry.provider == .codex else { return nil }
         let candidates = [(entry.primary, "session"), (entry.secondary, "weekly")]
         for (window, fallbackID) in candidates {
@@ -733,6 +727,7 @@ struct WidgetUsageRow: Identifiable, Equatable {
     }
 
     private static func antigravityQuotaFamily(for row: WidgetUsageRow) -> AntigravityQuotaFamily? {
+        // Provider-specific by design: Antigravity IDs/titles classify Gemini versus third-party quota families.
         guard row.id.hasPrefix("antigravity-quota-summary-") else { return nil }
         let id = row.id.lowercased()
         if id.contains("gemini") {
@@ -945,6 +940,7 @@ struct WidgetBalanceLine: Equatable {
 
 enum WidgetBalanceFormatter {
     static func extraUsageCost(for entry: WidgetSnapshot.ProviderEntry) -> ProviderCostSnapshot? {
+        // Provider-specific by design: Devin encodes its extra-usage balance as a named provider-cost period.
         guard entry.provider == .devin,
               let cost = entry.providerCost,
               cost.period == "Extra usage balance"

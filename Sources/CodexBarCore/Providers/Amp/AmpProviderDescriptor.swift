@@ -43,13 +43,15 @@ public enum AmpProviderDescriptor {
                 supportsTokenCost: false,
                 noDataMessage: { "Amp cost summary is not supported." }),
             pace: .calendarMonthResetWindow,
-            presentation: ProviderUsagePresentation(rateWindowLabeler: { metadata, snapshot, _ in
-                ProviderRateWindowLabels(
-                    primary: Self.primaryLabel(snapshot: snapshot) ?? metadata.sessionLabel,
-                    secondary: Self.secondaryLabel(snapshot: snapshot) ?? metadata.weeklyLabel,
-                    tertiary: metadata.opusLabel ?? "Sonnet",
-                    showsTertiary: metadata.supportsOpus)
-            }),
+            presentation: ProviderUsagePresentation(
+                rateWindowLabeler: { metadata, snapshot, _ in
+                    ProviderRateWindowLabels(
+                        primary: Self.primaryLabel(snapshot: snapshot) ?? metadata.sessionLabel,
+                        secondary: Self.secondaryLabel(snapshot: snapshot) ?? metadata.weeklyLabel,
+                        tertiary: metadata.opusLabel ?? "Sonnet",
+                        showsTertiary: metadata.supportsOpus)
+                },
+                menuCard: ProviderMenuCardPresentation(creditsVisibility: .hiddenWhenUsageSnapshotPresent)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api, .web, .cli],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),

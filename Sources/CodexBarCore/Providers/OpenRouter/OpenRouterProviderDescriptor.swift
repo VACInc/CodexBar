@@ -64,6 +64,11 @@ public enum OpenRouterProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "OpenRouter cost summary is not yet supported." }),
+            presentation: ProviderUsagePresentation(
+                menuCard: ProviderMenuCardPresentation(
+                    showsCreditsSection: false,
+                    primaryDescriptionPlacement: .reset),
+                planRow: ProviderPlanRowPresentation(label: "Balance", stripsBalancePrefix: true)),
             fetchPlan: self.fetchPlan(),
             cli: ProviderCLIConfig(
                 name: "openrouter",

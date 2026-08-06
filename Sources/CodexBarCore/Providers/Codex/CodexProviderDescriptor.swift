@@ -67,11 +67,16 @@ public enum CodexProviderDescriptor {
                 supportsTokenCost: true,
                 noDataMessage: self.noDataMessage,
                 menuHintLines: [.localized("codex_api_estimate_hint")],
-                supportsTokenSnapshot: true),
+                supportsTokenSnapshot: true,
+                showsHintInProviderDetails: true),
             pace: ProviderPaceCapability(
                 primary: .session(maximumMinutes: 300),
                 secondary: .weekly,
-                showsHeadroomHint: true),
+                showsHeadroomHint: true,
+                sessionPaceWindowRule: .custom { window, _ in
+                    guard let minutes = window.windowMinutes else { return true }
+                    return minutes != 7 * 24 * 60 && minutes != 30 * 24 * 60
+                }),
             history: .alwaysTracked,
             presentation: ProviderUsagePresentation(
                 identityPresenter: { provider, snapshot in
@@ -81,7 +86,21 @@ public enum CodexProviderDescriptor {
                     let display = CodexPlanFormatting.displayName(plan) ?? plan
                     return ProviderIdentityPresentation(badge: display, plan: display)
                 },
-                creditResolver: { $0.codexCreditLimit?.remaining ?? $0.remaining }),
+                creditResolver: { $0.codexCreditLimit?.remaining ?? $0.remaining },
+                iconWindowResolver: self.iconWindows,
+                iconDecorations: [.face],
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                planUtilizationSeriesResolver: self.planUtilizationSeries,
+                planUtilizationSeriesNormalizer: { series, windowMinutes in
+                    guard windowMinutes == 30 * 24 * 60,
+                          series == .session || series == .weekly
+                    else { return series }
+                    return .monthly
+                },
+                secondaryGloballyCapsPrimary: true,
+                menuCard: ProviderMenuCardPresentation(
+                    creditsVisibility: .requiresValueOrError,
+                    supportsInlineTokenCostDashboard: true)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web, .cli, .oauth],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),
@@ -89,6 +108,7 @@ public enum CodexProviderDescriptor {
                 name: "codex",
                 binaryLocator: { BinaryLocator.resolveCodexBinary() },
                 versionDetector: { _ in ProviderVersionDetector.codexVersion() },
+                supportsCostCommand: true,
                 browserSupportExemption: { sourceMode, _, _ in sourceMode == .auto }))
     }
 
@@ -129,6 +149,82 @@ public enum CodexProviderDescriptor {
 
     private static func noDataMessage() -> String {
         self.noDataMessage(env: ProcessInfo.processInfo.environment)
+    }
+
+    private enum UsageLane: Hashable {
+        case session
+        case weekly
+        case monthly
+    }
+
+    private static func iconWindows(context: ProviderIconWindowContext) -> ProviderUsageWindowPair {
+        let windows = self.visibleWindows(snapshot: context.snapshot, now: context.now)
+        return ProviderUsageWindowPair(primary: windows.first, secondary: windows.dropFirst().first)
+    }
+
+    private static func planUtilizationSeries(
+        snapshot: UsageSnapshot) -> Set<ProviderPlanUtilizationSeries>?
+    {
+        let lanes = Set(self.windowsByLane(snapshot: snapshot).keys)
+        return Set(lanes.map { lane in
+            switch lane {
+            case .session: .session
+            case .weekly: .weekly
+            case .monthly: .monthly
+            }
+        })
+    }
+
+    private static func visibleWindows(snapshot: UsageSnapshot, now: Date) -> [RateWindow] {
+        let slotted = [
+            self.classified(snapshot.primary, fallback: .session),
+            self.classified(snapshot.secondary, fallback: .weekly),
+        ].compactMap(\.self)
+        let windowsByLane = self.windowsByLane(snapshot: snapshot)
+        let weekly = windowsByLane[.weekly]
+        var seen: Set<UsageLane> = []
+        return slotted.compactMap { lane, _ in
+            guard seen.insert(lane).inserted, var window = windowsByLane[lane] else { return nil }
+            if lane == .session, self.weeklyCapsSession(weekly, now: now) {
+                window = RateWindow(
+                    usedPercent: 100,
+                    windowMinutes: window.windowMinutes,
+                    resetsAt: window.resetsAt,
+                    resetDescription: window.resetDescription,
+                    nextRegenPercent: window.nextRegenPercent,
+                    isSyntheticPlaceholder: window.isSyntheticPlaceholder)
+            }
+            guard window.remainingPercent > 0 || window.resetsAt.map({ $0 > now }) != false else { return nil }
+            return window
+        }
+    }
+
+    private static func windowsByLane(snapshot: UsageSnapshot) -> [UsageLane: RateWindow] {
+        let slotted = [
+            self.classified(snapshot.primary, fallback: .session),
+            self.classified(snapshot.secondary, fallback: .weekly),
+        ].compactMap(\.self)
+        var result: [UsageLane: RateWindow] = [:]
+        for (lane, window) in slotted {
+            result[lane] = window
+        }
+        return result
+    }
+
+    private static func classified(_ window: RateWindow?, fallback: UsageLane) -> (UsageLane, RateWindow)? {
+        guard let window else { return nil }
+        let lane: UsageLane = switch window.windowMinutes {
+        case 5 * 60: .session
+        case 7 * 24 * 60: .weekly
+        case 30 * 24 * 60: .monthly
+        default: fallback
+        }
+        return (lane, window)
+    }
+
+    private static func weeklyCapsSession(_ weekly: RateWindow?, now: Date) -> Bool {
+        guard let weekly, weekly.remainingPercent <= 0 else { return false }
+        return weekly.resetsAt.map { $0 > now } ?? true
     }
 
     private static func noDataMessage(env: [String: String], fileManager: FileManager = .default) -> String {

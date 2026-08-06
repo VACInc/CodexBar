@@ -75,7 +75,11 @@ public enum NotionProviderDescriptor {
                 resetWindowPace: .windowDuration(minutes: ProviderPaceCapability.monthlyWindowSentinelMinutes),
                 inferredMonthlyDuration: .windowDuration(
                     minutes: ProviderPaceCapability.monthlyWindowSentinelMinutes),
-                primary: .session(maximumMinutes: self.rollingWindowMaxMinutes)),
+                primary: .session(maximumMinutes: self.rollingWindowMaxMinutes),
+                sessionPaceWindowRule: .custom { window, _ in
+                    guard let minutes = window.windowMinutes else { return false }
+                    return minutes <= Self.rollingWindowMaxMinutes
+                }),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [NotionWebFetchStrategy()] })),

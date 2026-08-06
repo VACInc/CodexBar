@@ -9,7 +9,8 @@ public enum CursorProviderDescriptor {
         placeholder: "Cookie: …",
         injection: .cookieHeader,
         requiresManualCookieSource: true,
-        cookieName: nil))
+        cookieName: nil,
+        selectedAccountRequiresManualCookieSource: true))
 
     /// Active Cursor sessions often live only in Safari; Chromium profiles may carry stale tokens.
     private static var browserCookieOrder: BrowserCookieImportOrder? {
@@ -69,14 +70,27 @@ public enum CursorProviderDescriptor {
                 supportsTokenCost: true,
                 noDataMessage: { "No Cursor cost usage found. Sign in to Cursor in your browser or the Cursor app." },
                 menuHintLines: [.estimate],
-                supportsTokenSnapshot: self.supportsTokenSnapshot),
+                supportsTokenSnapshot: self.supportsTokenSnapshot,
+                estimateDisclaimer: "From Cursor's usage dashboard at vendor token rates; may differ from your " +
+                    "invoice."),
             pace: ProviderPaceCapability(resetWindowPace: .windowDurationPresent),
+            presentation: ProviderUsagePresentation(
+                requestedMenuBarLaneOrders: [
+                    .tertiary: [.tertiary, .secondary, .primary],
+                ],
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                menuBarWindowResolver: self.menuBarWindow,
+                menuCard: ProviderMenuCardPresentation(
+                    costVisibilityResolver: { $0.showOptionalUsage },
+                    supportsInlineTokenCostDashboard: true,
+                    primaryDetailKind: .requestQuota)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .cli, .web],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [CursorStatusFetchStrategy()] })),
             cli: ProviderCLIConfig(
                 name: "cursor",
                 versionDetector: nil,
+                supportsCostCommand: self.supportsCostCommand,
                 browserSupportExemption: { _, _, settings in
                     #if os(Linux)
                     // Linux uses Cursor app auth and manual cookies; browser import remains macOS-only.
@@ -85,6 +99,31 @@ public enum CursorProviderDescriptor {
                     false
                     #endif
                 }))
+    }
+
+    private static var supportsCostCommand: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    private static func menuBarWindow(
+        context: ProviderMenuBarWindowContext) -> ProviderMenuBarWindowResolution
+    {
+        guard context.metric == .automatic else { return .unhandled }
+        let total = context.snapshot.primary
+        let subquotas = [context.snapshot.secondary, context.snapshot.tertiary].compactMap(\.self)
+        let usableSubquotas = subquotas.filter { $0.remainingPercent > 0 }
+        if let total, total.remainingPercent <= 0 {
+            return .resolved(total)
+        }
+        if !subquotas.isEmpty, usableSubquotas.isEmpty {
+            return .resolved(subquotas.max(by: { $0.usedPercent < $1.usedPercent }))
+        }
+        return .resolved(([total].compactMap(\.self) + usableSubquotas)
+            .max(by: { $0.usedPercent < $1.usedPercent }))
     }
 
     private static var supportsTokenSnapshot: Bool {

@@ -110,6 +110,7 @@ extension UsageStore {
     /// Returns true if the Claude account appears to be a subscription (Max, Pro, Ultra, Team).
     /// Returns false for API users or when plan cannot be determined.
     func isClaudeSubscription() -> Bool {
+        // Provider-specific by design: Claude subscription plans choose its consumer dashboard account action.
         Self.isSubscriptionPlan(self.loginMethod(for: .claude))
     }
 
@@ -313,6 +314,7 @@ final class UsageStore {
     @ObservationIgnored let pluginApprovalStore = ProviderPluginApprovalStore()
     @ObservationIgnored let sessionQuotaNotifier: any SessionQuotaNotifying
     @ObservationIgnored let sessionQuotaLogger = CodexBarLog.logger(LogCategories.sessionQuota)
+    // Provider-specific by design: OpenAI web and Augment runtime diagnostics have dedicated app-owned log streams.
     @ObservationIgnored let openAIWebLogger = CodexBarLog.logger(LogCategories.provider(.openai, scope: "web"))
     @ObservationIgnored private let tokenCostLogger = CodexBarLog.logger(LogCategories.tokenCost)
     @ObservationIgnored let augmentLogger = CodexBarLog.logger(LogCategories.provider(.augment))
@@ -547,6 +549,7 @@ final class UsageStore {
         if let provider = enabled.first?.firstPartyProvider {
             return self.style(for: provider)
         }
+        // Provider-specific by design: Codex is the historical empty-enabled-set icon fallback.
         return .codex
     }
 
@@ -788,6 +791,7 @@ final class UsageStore {
             }
 
             if enrichmentMode == .forcedForeground, self.openAIDashboardRequiresLogin {
+                // Provider-specific by design: failed OpenAI attachment retries Codex usage before credits enrichment.
                 await self.refreshProvider(.codex)
                 await self.refreshCreditsNow(minimumSnapshotUpdatedAt: refreshStartedAt)
             }
@@ -956,6 +960,7 @@ final class UsageStore {
 
 extension UsageStore {
     func debugDumpClaude() async {
+        // Provider-specific by design: Claude's debug command owns a raw CLI/web probe artifact and error lane.
         let fetcher = ClaudeUsageFetcher(
             browserDetection: self.browserDetection,
             keepCLISessionsAlive: self.settings.debugKeepCLISessionsAlive)
@@ -1419,6 +1424,7 @@ extension UsageStore {
             return
         }
 
+        // Provider-specific by design: Cursor cost shares the dashboard-cookie source policy with status fetching.
         // Cursor cost honors the same cookie policy as status: when the user set the cookie source
         // to Off, skip the network fetch entirely (mirrors CursorProviderDescriptor.checkStatus).
         if provider == .cursor, self.settings.cursorCookieSource == .off {
@@ -1559,6 +1565,7 @@ extension UsageStore {
     }
 
     private func resetTokenUsageState(for provider: UsageProvider) {
+        // Provider-specific by design: resetting Codex token state also cancels its two ledger catch-up workflows.
         if provider == .codex {
             self.cancelCodexCostCatchUp()
             self.cancelSpendDashboardCodexCostCatchUp()

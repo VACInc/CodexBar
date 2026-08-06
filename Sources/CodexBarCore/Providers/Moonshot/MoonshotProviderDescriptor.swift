@@ -69,6 +69,8 @@ public enum MoonshotProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "Moonshot / Kimi Open Platform cost summary is not available." }),
+            presentation: ProviderUsagePresentation(
+                planRow: ProviderPlanRowPresentation(label: "Balance", stripsBalancePrefix: true)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [MoonshotAPIFetchStrategy()] })),

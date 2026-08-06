@@ -52,6 +52,11 @@ public enum AbacusProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "Abacus AI cost summary is not supported." }),
+            presentation: ProviderUsagePresentation(
+                menuCard: ProviderMenuCardPresentation(usesAbacusPace: true),
+                menu: ProviderMenuDescriptorPresentation(
+                    primaryDescriptionIsDetail: { _ in true },
+                    showsPrimaryWeeklyPace: true)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in

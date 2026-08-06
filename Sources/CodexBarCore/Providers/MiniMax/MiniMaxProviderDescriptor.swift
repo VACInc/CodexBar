@@ -92,6 +92,15 @@ public enum MiniMaxProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "MiniMax cost summary is not supported." }),
+            presentation: ProviderUsagePresentation(
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                menuBarWindowResolver: { context in
+                    guard context.metric == .automatic else { return .unhandled }
+                    return .resolved(ProviderUsagePresentation.mostConstrained(
+                        context.snapshot.primary,
+                        context.snapshot.secondary,
+                        context.snapshot.tertiary))
+                }),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .web, .api],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),

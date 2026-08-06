@@ -10,6 +10,7 @@ public struct ProviderCLIConfig: Sendable {
     public let aliases: [String]
     public let binaryLocator: (@Sendable () -> String?)?
     public let versionDetector: (@Sendable (BrowserDetection) -> String?)?
+    public let supportsCostCommand: Bool
     private let browserSupportExemption: BrowserSupportExemption
 
     public init(
@@ -17,12 +18,14 @@ public struct ProviderCLIConfig: Sendable {
         aliases: [String] = [],
         binaryLocator: (@Sendable () -> String?)? = nil,
         versionDetector: (@Sendable (BrowserDetection) -> String?)?,
+        supportsCostCommand: Bool = false,
         browserSupportExemption: @escaping BrowserSupportExemption = { _, _, _ in false })
     {
         self.name = name
         self.aliases = aliases
         self.binaryLocator = binaryLocator
         self.versionDetector = versionDetector
+        self.supportsCostCommand = supportsCostCommand
         self.browserSupportExemption = browserSupportExemption
     }
 

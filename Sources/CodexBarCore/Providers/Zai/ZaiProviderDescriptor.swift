@@ -11,7 +11,8 @@ public enum ZaiProviderDescriptor {
             placeholder: "Paste token…",
             injection: .environment(key: ZaiSettingsReader.apiTokenKey),
             requiresManualCookieSource: false,
-            cookieName: nil),
+            cookieName: nil,
+            showsTeamModeControls: true),
         usesRegion: true,
         configValidator: { config in
             var issues = ProviderCredentialAdapter.regionValidator(
@@ -91,9 +92,17 @@ public enum ZaiProviderDescriptor {
             tokenCost: ProviderTokenCostConfig(
                 supportsTokenCost: false,
                 noDataMessage: { "z.ai cost summary is not supported." }),
-            presentation: ProviderUsagePresentation(extraRateWindowSelector: { snapshot in
-                (snapshot.extraRateWindows ?? []).filter { $0.id == "zai-mcp" }
-            }),
+            presentation: ProviderUsagePresentation(
+                extraRateWindowSelector: { snapshot in
+                    (snapshot.extraRateWindows ?? []).filter { $0.id == "zai-mcp" }
+                },
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                menuBarWindowResolver: { context in
+                    guard context.metric == .automatic else { return .unhandled }
+                    return .resolved(ProviderUsagePresentation.mostConstrained(
+                        context.snapshot.primary,
+                        context.snapshot.secondary))
+                }),
             fetchPlan: self.fetchPlan(),
             cli: ProviderCLIConfig(
                 name: "zai",

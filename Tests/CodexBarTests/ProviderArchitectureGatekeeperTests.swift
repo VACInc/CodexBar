@@ -211,6 +211,205 @@ struct ProviderArchitectureGatekeeperTests {
         ])
     }
 
+    @Test
+    func `cross provider case clusters are derived or specifically justified`() throws {
+        let root = try Self.repoRoot()
+        let sources = root.appending(path: "Sources", directoryHint: .isDirectory)
+        let providerCases = UsageProvider.allCases.map(\.rawValue)
+        let enumerator = try #require(FileManager.default.enumerator(
+            at: sources,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]))
+        var failures: [String] = []
+
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            guard !relativePath.contains("/Providers/") else { continue }
+            let source = try String(contentsOf: url, encoding: .utf8)
+            let lines = source.components(separatedBy: .newlines)
+            let hitLines = lines.indices.filter { index in
+                let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+                guard !trimmed.hasPrefix("//") else { return false }
+                return providerCases.contains { Self.containsProviderCase($0, in: lines[index]) }
+            }
+            guard !hitLines.isEmpty else { continue }
+
+            if Self.auditedCrossProviderFiles.contains(relativePath) {
+                for cluster in Self.providerCaseClusters(hitLines) {
+                    let markerStart = max(0, cluster.lowerBound - Self.providerCaseMarkerWindow)
+                    let hasMarker = lines[markerStart...cluster.lowerBound]
+                        .contains { $0.contains("Provider-specific by design:") }
+                    if !hasMarker {
+                        failures.append(
+                            "\(relativePath):\(cluster.lowerBound + 1) has an unjustified provider case cluster; " +
+                                "derive it or add '// Provider-specific by design: <specific reason>' immediately " +
+                                "before the cluster.")
+                    }
+                }
+                continue
+            }
+
+            let isProviderOwnedFile = Self.providerOwnedFilenameTokens.contains { token in
+                url.deletingPathExtension().lastPathComponent.contains(token)
+            }
+            let isAllowlisted = Self.genericDispatchAllowlist.contains(relativePath)
+            let hasExistingJustification = source.contains("Provider-specific by design:")
+            if !isProviderOwnedFile, !isAllowlisted, !hasExistingJustification {
+                failures.append(
+                    "\(relativePath):\(hitLines[0] + 1) is a new cross-provider case-dispatch file; " +
+                        "add it to the audited inventory, derive the dispatch, or justify the provider owner.")
+            }
+        }
+
+        #expect(failures.isEmpty, Comment(rawValue: failures.joined(separator: "\n")))
+    }
+
+    private static let providerCaseMarkerWindow = 120
+    private static let providerCaseClusterGap = 120
+
+    private static let auditedCrossProviderFiles: Set<String> = [
+        "Sources/CodexBar/Config/CodexBarConfigMigrator.swift",
+        "Sources/CodexBar/PreferencesProviderDetailView.swift",
+        "Sources/CodexBar/PreferencesProvidersPane.swift",
+        "Sources/CodexBar/SessionQuotaNotifications.swift",
+        "Sources/CodexBar/SettingsStore+ProviderDetection.swift",
+        "Sources/CodexBar/SettingsStore+TokenAccounts.swift",
+        "Sources/CodexBar/SettingsStore+TokenCost.swift",
+        "Sources/CodexBar/StatusItemController+AccountMenuDisplay.swift",
+        "Sources/CodexBar/StatusItemController+Actions.swift",
+        "Sources/CodexBar/StatusItemController+Animation.swift",
+        "Sources/CodexBar/StatusItemController+Menu.swift",
+        "Sources/CodexBar/StatusItemController+MenuCardModel.swift",
+        "Sources/CodexBar/StatusItemController+MenuTracking.swift",
+        "Sources/CodexBar/UsageStore+Accessors.swift",
+        "Sources/CodexBar/UsageStore+BackgroundRefresh.swift",
+        "Sources/CodexBar/UsageStore+HighestUsage.swift",
+        "Sources/CodexBar/UsageStore+HistoricalPace.swift",
+        "Sources/CodexBar/UsageStore+OpenAIWeb.swift",
+        "Sources/CodexBar/UsageStore+PlanUtilization.swift",
+        "Sources/CodexBar/UsageStore+QuotaWarnings.swift",
+        "Sources/CodexBar/UsageStore+Refresh.swift",
+        "Sources/CodexBar/UsageStore+SessionEquivalents.swift",
+        "Sources/CodexBar/UsageStore+SessionQuotaTransition.swift",
+        "Sources/CodexBar/UsageStore+TokenAccounts.swift",
+        "Sources/CodexBar/UsageStore+TokenCost.swift",
+        "Sources/CodexBar/UsageStore+WidgetSnapshot.swift",
+        "Sources/CodexBar/UsageStore.swift",
+        "Sources/CodexBarCLI/CLICardsCommand.swift",
+        "Sources/CodexBarCLI/CLICardsRenderer.swift",
+        "Sources/CodexBarCLI/CLIClaudeSwapCards.swift",
+        "Sources/CodexBarCLI/CLIConfigCommand.swift",
+        "Sources/CodexBarCLI/CLICostCommand.swift",
+        "Sources/CodexBarCLI/CLIHelpers.swift",
+        "Sources/CodexBarCLI/CLISessionsCommand.swift",
+        "Sources/CodexBarCLI/DashboardSnapshotBuilder.swift",
+        "Sources/CodexBarCore/CostUsageFetcher.swift",
+        "Sources/CodexBarCore/PiSessionCostScanner.swift",
+        "Sources/CodexBarCore/ProviderStorageFootprint.swift",
+        "Sources/CodexBarCore/UsageFetcher.swift",
+        "Sources/CodexBarCore/UsageFormatter.swift",
+        "Sources/CodexBarCore/Vendored/CostUsage/CostUsageCache.swift",
+        "Sources/CodexBarCore/Vendored/CostUsage/CostUsageScanner.swift",
+        "Sources/CodexBarWidget/BurnDownWidgetProvider.swift",
+        "Sources/CodexBarWidget/CodexBarWidgetViews.swift",
+    ]
+
+    private static let genericDispatchAllowlist: Set<String> = [
+        "Sources/CodexBar/CostHistoryChartMenuView.swift",
+        "Sources/CodexBar/HistoricalUsagePace.swift",
+        "Sources/CodexBar/IconRenderer.swift",
+        "Sources/CodexBar/InlineUsageDashboardContent.swift",
+        "Sources/CodexBar/MenuBarLayout.swift",
+        "Sources/CodexBar/MenuBarLayoutEditor.swift",
+        "Sources/CodexBar/MenuBarMetricWindowResolver.swift",
+        "Sources/CodexBar/MenuCardView+Costs.swift",
+        "Sources/CodexBar/MenuCardView+ModelHelpers.swift",
+        "Sources/CodexBar/MenuCardView.swift",
+        "Sources/CodexBar/MenuDescriptor.swift",
+        "Sources/CodexBar/MenuOpenRefreshPlan.swift",
+        "Sources/CodexBar/PredictivePaceWarnings.swift",
+        "Sources/CodexBar/PreferencesMenuPane.swift",
+        "Sources/CodexBar/PreferencesSpendDashboardPane.swift",
+        "Sources/CodexBar/ProviderRegistry.swift",
+        "Sources/CodexBar/PreferencesProvidersPane+Testing.swift",
+        "Sources/CodexBar/SettingsStore+MenuObservation.swift",
+        "Sources/CodexBar/SettingsStore+MenuPreferences.swift",
+        "Sources/CodexBar/SettingsStore.swift",
+        "Sources/CodexBar/ShareStatsPayload.swift",
+        "Sources/CodexBar/SpendDashboardController.swift",
+        "Sources/CodexBar/SpendDashboardModel+ModelBreakdown.swift",
+        "Sources/CodexBar/SpendDashboardModel.swift",
+        "Sources/CodexBar/StatusItemController+CompactAccountMenu.swift",
+        "Sources/CodexBar/StatusItemController+CostMenuCard.swift",
+        "Sources/CodexBar/StatusItemController+CountdownRefresh.swift",
+        "Sources/CodexBar/StatusItemController+HostedSubmenus.swift",
+        "Sources/CodexBar/StatusItemController+MemoryPressure.swift",
+        "Sources/CodexBar/StatusItemController+MenuBarLayout.swift",
+        "Sources/CodexBar/StatusItemController+MenuSwitcherWarmup.swift",
+        "Sources/CodexBar/StatusItemController+MenuTypes.swift",
+        "Sources/CodexBar/StatusItemController+MenuViewportRestore.swift",
+        "Sources/CodexBar/StatusItemController+OverviewSubmenus.swift",
+        "Sources/CodexBar/StatusItemController+ProviderNavigation.swift",
+        "Sources/CodexBar/StatusItemController+SwitcherMetrics.swift",
+        "Sources/CodexBar/StatusItemController.swift",
+        "Sources/CodexBar/UsageStore+APIKeyDebug.swift",
+        "Sources/CodexBar/UsageStore+LimitResetCelebration.swift",
+        "Sources/CodexBar/UsageStore+LimitResetIdentity.swift",
+        "Sources/CodexBar/UsageStore+ProviderStorage.swift",
+        "Sources/CodexBar/UsageStore+RefreshEnrichment.swift",
+        "Sources/CodexBar/UsageStore+TokenAccountLabels.swift",
+        "Sources/CodexBarCore/AgentSession.swift",
+        "Sources/CodexBarCore/LocalAgentSessionScanner.swift",
+        "Sources/CodexBarCore/Logging/LogCategories.swift",
+        "Sources/CodexBarCore/PathEnvironment.swift",
+        "Sources/CodexBarCore/ProviderEndpointOverrideValidator.swift",
+        "Sources/CodexBarCore/SessionWindowFocuser.swift",
+        "Sources/CodexBarCore/UsageSnapshot+SwitcherWeeklyWindow.swift",
+        "Sources/CodexBarCore/Vendored/CostUsage/ModelsDevPricing.swift",
+        "Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift",
+        "Sources/CodexBarCLI/CLIHelp.swift",
+    ]
+
+    private static let providerOwnedFilenameTokens = [
+        "Codex", "Claude", "Cursor", "Gemini", "Antigravity", "Copilot", "Zai", "MiniMax", "Kimi", "Kilo",
+        "Kiro", "Vertex", "Augment", "Moonshot", "Amp", "Synthetic", "OpenRouter", "ElevenLabs", "Warp",
+        "Windsurf", "Perplexity", "Mimo", "Doubao", "Sakana", "Abacus", "Mistral", "DeepSeek", "DeepInfra",
+        "Crof", "Venice", "CommandCode", "Qoder", "Bedrock", "Grok", "Groq", "Deepgram", "Poe",
+        "ClawRouter", "Sub2API", "OpenAI", "Alibaba", "StepFun", "Wayfinder", "ZoomMate", "Notion",
+    ]
+
+    private static func providerCaseClusters(_ hitLines: [Int]) -> [ClosedRange<Int>] {
+        guard let first = hitLines.first else { return [] }
+        var clusters: [ClosedRange<Int>] = []
+        var start = first
+        var end = first
+        for line in hitLines.dropFirst() {
+            if line - end > self.providerCaseClusterGap {
+                clusters.append(start...end)
+                start = line
+            }
+            end = line
+        }
+        clusters.append(start...end)
+        return clusters
+    }
+
+    private static func containsProviderCase(_ rawValue: String, in line: String) -> Bool {
+        let needle = ".\(rawValue)"
+        var searchStart = line.startIndex
+        while let range = line.range(of: needle, range: searchStart..<line.endIndex) {
+            if range.upperBound == line.endIndex || !Self.isIdentifierCharacter(line[range.upperBound]) {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+        character == "_" || character.isLetter || character.isNumber
+    }
+
     private static func repoRoot() throws -> URL {
         var directory = URL(filePath: #filePath).deletingLastPathComponent()
         for _ in 0..<12 {

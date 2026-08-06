@@ -18,6 +18,7 @@ public enum ClaudeProviderDescriptor {
             injection: .cookieHeader,
             requiresManualCookieSource: true,
             cookieName: "sessionKey",
+            showsOrganizationField: true,
             environmentOverride: { token in
                 switch ClaudeCredentialRouting.resolve(tokenAccountToken: token, manualCookieHeader: nil) {
                 case let .oauth(accessToken):
@@ -127,11 +128,14 @@ public enum ClaudeProviderDescriptor {
                 supportsTokenCost: true,
                 noDataMessage: self.noDataMessage,
                 menuHintLines: [.estimate],
-                supportsTokenSnapshot: true),
+                supportsTokenSnapshot: true,
+                estimateDisclaimer: "Estimated from local Claude logs at API rates; token totals include cache " +
+                    "read/write tokens and may differ from Claude Code /status."),
             pace: ProviderPaceCapability(
                 primary: .session(maximumMinutes: 300),
                 secondary: .weekly,
-                tertiary: .weekly),
+                tertiary: .weekly,
+                sessionPaceWindowRule: .custom { _, _ in true }),
             history: .alwaysTracked,
             presentation: ProviderUsagePresentation(
                 identityPresenter: { provider, snapshot in
@@ -158,7 +162,29 @@ public enum ClaudeProviderDescriptor {
                     return ProviderCostPresentation(
                         showsGenericFallback: !(cost.used == 0 && cost.limit == 0 && cost.balance != nil),
                         balances: balances)
-                }),
+                },
+                iconDecorations: [.notches],
+                automaticSelectionPrioritizesExhaustedWindow: false,
+                menuBarWindowResolver: self.menuBarWindow,
+                planUtilizationSeriesResolver: { snapshot in
+                    var series: Set<ProviderPlanUtilizationSeries> = []
+                    if snapshot.primary != nil {
+                        series.insert(.session)
+                    }
+                    if snapshot.secondary != nil {
+                        series.insert(.weekly)
+                    }
+                    if snapshot.tertiary != nil {
+                        series.insert(.tertiary)
+                    }
+                    return series
+                },
+                secondaryGloballyCapsPrimary: true,
+                menuCard: ProviderMenuCardPresentation(
+                    costVisibilityResolver: { context in
+                        context.showOptionalUsage || context.snapshot?.loginMethod(for: .claude) == "Admin API"
+                    },
+                    supportsInlineTokenCostDashboard: true)),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api, .web, .cli, .oauth],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),
@@ -168,7 +194,26 @@ public enum ClaudeProviderDescriptor {
                 versionDetector: { browserDetection in
                     ClaudeUsageFetcher(browserDetection: browserDetection).detectVersion()
                 },
+                supportsCostCommand: true,
                 browserSupportExemption: { sourceMode, _, _ in sourceMode == .auto }))
+    }
+
+    private static func menuBarWindow(
+        context: ProviderMenuBarWindowContext) -> ProviderMenuBarWindowResolution
+    {
+        guard context.metric == .automatic || context.metric == .primaryAndSecondary,
+              let cost = context.snapshot.providerCost,
+              cost.limit > 0,
+              context.snapshot.secondary == nil,
+              context.snapshot.tertiary == nil,
+              context.snapshot.primary == nil || context.snapshot.primary?.isSyntheticPlaceholder == true
+        else { return .unhandled }
+        let usedPercent = max(0, min(100, (cost.used / cost.limit) * 100))
+        return .resolved(RateWindow(
+            usedPercent: usedPercent,
+            windowMinutes: nil,
+            resetsAt: cost.resetsAt,
+            resetDescription: nil))
     }
 
     private static func resolveStrategies(context: ProviderFetchContext) async -> [any ProviderFetchStrategy] {

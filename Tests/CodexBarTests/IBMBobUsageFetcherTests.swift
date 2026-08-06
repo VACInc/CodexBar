@@ -115,7 +115,7 @@ struct IBMBobUsageFetcherTests {
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: nil)!
-            return (Self.untrustedProfileData, response)
+            return (Self.regionalProfileData(regionDomain: "evil.example"), response)
         }
 
         await #expect {
@@ -124,6 +124,36 @@ struct IBMBobUsageFetcherTests {
                 transport: transport)
         } throws: { error in
             guard case IBMBobUsageError.untrustedRegion("api.evil.example") = error else { return false }
+            return true
+        }
+        #expect(await recorder.values.count == 1)
+    }
+
+    @Test(arguments: [
+        "evil.example/path/.bob.ibm.com",
+        "evil.example?next=.bob.ibm.com",
+        "evil.example#.bob.ibm.com",
+        "evil.example@us-east.bob.ibm.com",
+        "us-east.bob.ibm.com:443",
+    ])
+    func `rejects regional URL component bypasses before sending credentials`(regionDomain: String) async {
+        let recorder = IBMBobRequestRecorder()
+        let transport = ProviderHTTPTransportHandler { request in
+            await recorder.append(request)
+            let response = try HTTPURLResponse(
+                url: #require(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil)!
+            return (Self.regionalProfileData(regionDomain: regionDomain), response)
+        }
+
+        await #expect {
+            _ = try await IBMBobUsageFetcher._fetchUsageForTesting(
+                apiKey: "fixture-key",
+                transport: transport)
+        } throws: { error in
+            guard case IBMBobUsageError.untrustedRegion = error else { return false }
             return true
         }
         #expect(await recorder.values.count == 1)
@@ -193,17 +223,19 @@ struct IBMBobUsageFetcherTests {
         }
         """.utf8)
 
-    private static let untrustedProfileData = Data(
-        """
-        {
-          "instances": [{
-            "instance_id": "instance-one",
-            "user_id": "user-one",
-            "region_domain": "evil.example",
-            "teams": [{"id": "team-one", "budget_limit": 40}]
-          }]
-        }
-        """.utf8)
+    private static func regionalProfileData(regionDomain: String) -> Data {
+        Data(
+            """
+            {
+              "instances": [{
+                "instance_id": "instance-one",
+                "user_id": "user-one",
+                "region_domain": "\(regionDomain)",
+                "teams": [{"id": "team-one", "budget_limit": 40}]
+              }]
+            }
+            """.utf8)
+    }
 }
 
 private actor IBMBobRequestRecorder {

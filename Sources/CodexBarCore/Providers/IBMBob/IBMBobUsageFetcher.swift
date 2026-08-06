@@ -302,7 +302,18 @@ public enum IBMBobUsageFetcher {
     private static func regionalBaseURL(_ regionDomain: String?) throws -> URL {
         guard let domain = self.nonEmpty(regionDomain) else { return self.baseURL }
         let host = domain.lowercased().hasPrefix("api.") ? domain : "api.\(domain)"
-        guard Self.isTrustedHost(host), let url = URL(string: "https://\(host)") else {
+        guard let url = URL(string: "https://\(host)"),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.path.isEmpty,
+              components.query == nil,
+              components.fragment == nil,
+              let parsedHost = components.host,
+              Self.isTrustedHost(parsedHost)
+        else {
             throw IBMBobUsageError.untrustedRegion(host)
         }
         return url

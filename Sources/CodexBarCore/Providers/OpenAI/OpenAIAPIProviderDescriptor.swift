@@ -4,6 +4,7 @@ public enum OpenAIAPIProviderDescriptor {
     public static let descriptor: ProviderDescriptor = Self.makeDescriptor()
     private static let credentials = ProviderCredentialAdapter.apiKey(
         environmentKey: OpenAIAPISettingsReader.adminAPIKeyEnvironmentKey,
+        apiKeyDebugLabel: OpenAIAPISettingsReader.apiKeyEnvironmentKey,
         additionalProjections: [.workspaceID(OpenAIAPISettingsReader.projectIDEnvironmentKey)],
         resolve: OpenAIAPISettingsReader.apiKey,
         tokenAccountSupport: TokenAccountSupport(
@@ -52,18 +53,25 @@ public enum OpenAIAPIProviderDescriptor {
                 noDataMessage: { "OpenAI usage needs an Admin API key for organization usage." },
                 menuHintLines: [.literal("Reported by OpenAI Admin API organization usage.")],
                 showsCostMenuSection: false),
-            presentation: ProviderUsagePresentation(menuCard: ProviderMenuCardPresentation(
-                usageNotesResolver: { context in
-                    context.snapshot?.openAIAPIUsage.map(ProviderUsageNotesResolution.openAIAPI) ?? .unhandled
+            presentation: ProviderUsagePresentation(
+                costPresenter: { snapshot in
+                    let style: ProviderCostMenuCardStyle = (snapshot.providerCost?.limit ?? 1) <= 0
+                        ? .apiSpend
+                        : .generic
+                    return ProviderCostPresentation(menuCardStyle: style)
                 },
-                costVisibilityResolver: { $0.snapshot?.openAIAPIUsage == nil },
-                usesProviderCostHistoryAsPrimaryDashboard: true,
-                primaryCostHistoryResolver: { snapshot, tokenSnapshot in
-                    if let projected = snapshot?.openAIAPIUsage?.toCostUsageTokenSnapshot() {
-                        return projected
-                    }
-                    return snapshot == nil ? tokenSnapshot : nil
-                })),
+                menuCard: ProviderMenuCardPresentation(
+                    usageNotesResolver: { context in
+                        context.snapshot?.openAIAPIUsage.map(ProviderUsageNotesResolution.openAIAPI) ?? .unhandled
+                    },
+                    costVisibilityResolver: { $0.snapshot?.openAIAPIUsage == nil },
+                    usesProviderCostHistoryAsPrimaryDashboard: true,
+                    primaryCostHistoryResolver: { snapshot, tokenSnapshot in
+                        if let projected = snapshot?.openAIAPIUsage?.toCostUsageTokenSnapshot() {
+                            return projected
+                        }
+                        return snapshot == nil ? tokenSnapshot : nil
+                    })),
             fetchPlan: self.fetchPlan(),
             cli: ProviderCLIConfig(
                 name: "openai",

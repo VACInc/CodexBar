@@ -468,6 +468,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
     }
 
     @objc func openTerminalCommand(_ sender: NSMenuItem) {
+        // Provider-specific by design: legacy terminal menu items without a command payload open Claude.
         let command = sender.representedObject as? String ?? "claude"
         self.openTerminal(command: command)
     }

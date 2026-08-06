@@ -88,6 +88,7 @@ extension StatusItemController {
         }
 
         let sourceLabel = surface == .liveCard ? self.store.sourceLabel(for: target) : nil
+        // Provider-specific by design: Kilo's automatic source mode is surfaced as card fallback context.
         let kiloAutoMode = target == .kilo && self.settings.kiloUsageDataSource == .auto
         let (weeklyPace, sessionEquivalentForecast) = self.resolvePaceAndForecast(
             target: target,

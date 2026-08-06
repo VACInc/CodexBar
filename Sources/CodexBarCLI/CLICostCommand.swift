@@ -64,6 +64,7 @@ extension CodexBarCLI {
         var payload: [CostPayload] = []
         var exitCode: ExitCode = .success
 
+        // Provider-specific by design: project grouping is available only for Codex local session data.
         for provider in providers where groupBy != .project || provider == .codex || format == .json {
             if let error = Self.cursorCostAvailabilityError(
                 provider,

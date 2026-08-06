@@ -699,6 +699,7 @@ extension StatusItemController {
         // icon render, this signature input, and the menu-bar fallback semantics on a single
         // source of truth — a hand-rolled approximation can silently drift from the projection
         // as its fallback logic evolves.
+        // Provider-specific by design: only Codex projects credits into the menu-bar icon fallback.
         guard provider == .codex else { return nil }
         return self.store.codexMenuBarCreditsRemaining(
             snapshotOverride: snapshot,
@@ -1416,6 +1417,7 @@ extension StatusItemController {
         if let enabled = self.store.enabledFirstPartyProviders().first {
             return enabled
         }
+        // Provider-specific by design: Codex remains the placeholder icon when no provider can animate.
         return .codex
     }
 
@@ -1474,6 +1476,7 @@ extension StatusItemController {
 
         let isStale = self.store.isStale(provider: provider)
         let hasSatisfiedUsageFetch = self.store.hasSatisfiedUsageFetch(for: provider)
+        // Provider-specific by design: Warp animates while its first remote refresh is still in flight.
         if provider == .warp, !hasSatisfiedUsageFetch, self.store.refreshingProviders.contains(provider.instanceID) {
             return true
         }

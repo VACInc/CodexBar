@@ -59,6 +59,31 @@ struct IBMBobUsageFetcherTests {
     }
 
     @Test
+    func `decodes live profile names unix resets and team budget`() async throws {
+        let transport = ProviderHTTPTransportHandler { request in
+            let data = request.url?.path == "/admin/v1/profile"
+                ? Self.liveProfileData
+                : Data(#"{"usage":12.5,"budget_limit":80}"#.utf8)
+            let response = try HTTPURLResponse(
+                url: #require(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil)!
+            return (data, response)
+        }
+
+        let snapshot = try await IBMBobUsageFetcher._fetchUsageForTesting(
+            apiKey: "fixture-key",
+            transport: transport)
+
+        #expect(snapshot.teams.count == 1)
+        #expect(snapshot.teams[0].instanceName == "Personal")
+        #expect(snapshot.teams[0].usedBobcoins == 12.5)
+        #expect(snapshot.teams[0].limitBobcoins == 80)
+        #expect(snapshot.teams[0].resetsAt == Date(timeIntervalSince1970: 1_788_220_800))
+    }
+
+    @Test
     func `uses bearer authorization for JWT credentials`() async throws {
         let token = "header.eyJzdWIiOiJ1c2VyIn0.signature"
         let recorder = IBMBobRequestRecorder()
@@ -149,6 +174,21 @@ struct IBMBobUsageFetcherTests {
             "instance_id": "instance-one",
             "user_id": "user-one",
             "teams": [{"id": "team-one", "budget_limit": 40}]
+          }]
+        }
+        """.utf8)
+
+    private static let liveProfileData = Data(
+        """
+        {
+          "instances": [{
+            "instance_id": "instance-one",
+            "instance_name": "Personal",
+            "user_id": "user-one",
+            "plan_name": "Pro+",
+            "refresh_at": 1788220800,
+            "region_domain": "us-east.bob.ibm.com",
+            "teams": [{"id": "team-one", "name": "Solo", "budget_limit": 40, "usage": 10}]
           }]
         }
         """.utf8)

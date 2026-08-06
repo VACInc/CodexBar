@@ -116,16 +116,22 @@ private struct IBMBobProfileResponse: Decodable {
         }
 
         let instanceID: String
-        let name: String?
+        let instanceName: String?
+        let legacyName: String?
         let userID: String?
         let planName: String?
-        let refreshAt: String?
+        let refreshAt: IBMBobRefreshAt?
         let regionDomain: String?
         let teams: [Team]
 
+        var name: String? {
+            self.instanceName ?? self.legacyName
+        }
+
         enum CodingKeys: String, CodingKey {
             case instanceID = "instance_id"
-            case name
+            case instanceName = "instance_name"
+            case legacyName = "name"
             case userID = "user_id"
             case planName = "plan_name"
             case refreshAt = "refresh_at"
@@ -137,8 +143,32 @@ private struct IBMBobProfileResponse: Decodable {
     let instances: [Instance]
 }
 
+private enum IBMBobRefreshAt: Decodable {
+    case seconds(Double)
+    case text(String)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let seconds = try? container.decode(Double.self) {
+            self = .seconds(seconds)
+        } else if let text = try? container.decode(String.self) {
+            self = .text(text)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected IBM Bob refresh_at to be Unix seconds or an ISO-8601 string.")
+        }
+    }
+}
+
 private struct IBMBobTeamBudgetResponse: Decodable {
     let usage: Double
+    let budgetLimit: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case usage
+        case budgetLimit = "budget_limit"
+    }
 }
 
 public enum IBMBobUsageFetcher {
@@ -203,7 +233,7 @@ public enum IBMBobUsageFetcher {
                         retryPolicy: .transientIdempotent)
                     try self.validate(response)
                     let budget = try JSONDecoder().decode(IBMBobTeamBudgetResponse.self, from: response.data)
-                    let limit = team.budgetLimit.flatMap { $0 >= 0 ? $0 : nil }
+                    let limit = (budget.budgetLimit ?? team.budgetLimit).flatMap { $0 >= 0 ? $0 : nil }
                     let instanceName = Self.nonEmpty(instance.name) ?? instance.instanceID
                     let teamName = Self.nonEmpty(team.name) ?? team.id
                     teamUsage.append(IBMBobUsageSnapshot.TeamUsage(
@@ -302,7 +332,18 @@ public enum IBMBobUsageFetcher {
         }
     }
 
-    private static func parseDate(_ value: String?) -> Date? {
+    private static func parseDate(_ value: IBMBobRefreshAt?) -> Date? {
+        guard let value else { return nil }
+        switch value {
+        case let .seconds(seconds):
+            guard seconds.isFinite, seconds > 0 else { return nil }
+            return Date(timeIntervalSince1970: seconds)
+        case let .text(text):
+            return self.parseISO8601Date(text)
+        }
+    }
+
+    private static func parseISO8601Date(_ value: String) -> Date? {
         guard let value = self.nonEmpty(value) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

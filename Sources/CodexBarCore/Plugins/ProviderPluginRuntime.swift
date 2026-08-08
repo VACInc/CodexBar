@@ -1,9 +1,10 @@
-#if canImport(JavaScriptCore)
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(JavaScriptCore)
 @preconcurrency import JavaScriptCore
+#endif
 
 public final class ProviderPluginRuntime: @unchecked Sendable {
     public typealias CookieResolver = @Sendable (UsageProvider, String) async throws -> String
@@ -11,6 +12,8 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
 
     public static let defaultTimeout: TimeInterval = 20
     public static let maximumResponseBytes = 5 * 1024 * 1024
+    public static let engineEnvironmentKey = "CODEXBAR_PLUGIN_ENGINE"
+    public static let javaScriptCoreRollbackDefaultsKey = "debugUseJavaScriptCorePluginEngine"
 
     public let manifest: ProviderPluginManifest
 
@@ -21,32 +24,103 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
     private let responseSizeLimit: Int
     private let rejectsNonSuccessResponses: Bool
     private let allowsDynamicID: Bool
+    private let contextOptions: ProviderPluginContextOptions
+    private let engineKind: ProviderPluginEngineKind
     private let lock = NSLock()
-    private var worker: ProviderPluginWorker?
+    private var worker: (any ProviderPluginEngine)?
 
     public convenience init(
         bundledPlugin name: String,
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout) throws
     {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "js") else {
+        try self.init(
+            bundledPlugin: name,
+            resourceBundle: CodexBarCoreResources.bundle,
+            transport: transport,
+            timeout: timeout)
+    }
+
+    convenience init(
+        bundledPlugin name: String,
+        transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
+        timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout,
+        contextOptions: ProviderPluginContextOptions) throws
+    {
+        try self.init(
+            bundledPlugin: name,
+            resourceBundle: CodexBarCoreResources.bundle,
+            transport: transport,
+            timeout: timeout,
+            contextOptions: contextOptions)
+    }
+
+    convenience init(
+        bundledPlugin name: String,
+        resourceBundle: Bundle?,
+        transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
+        timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout,
+        contextOptions: ProviderPluginContextOptions = .production) throws
+    {
+        guard let resourceBundle else {
+            throw ProviderPluginError.load(CodexBarCoreResources.missingBundleMessage)
+        }
+        guard let url = resourceBundle.url(forResource: name, withExtension: "js") else {
             throw ProviderPluginError.load("bundled plugin '\(name).js' was not found")
         }
         let source = try String(contentsOf: url, encoding: .utf8)
-        try self.init(source: source, transport: transport, timeout: timeout)
+        try ProviderPluginSourceLint.validateBundled(source, name: name)
+        try self.init(
+            source: source,
+            resourceBundle: resourceBundle,
+            transport: transport,
+            timeout: timeout,
+            contextOptions: contextOptions)
     }
 
-    public init(
+    public convenience init(
         source: String,
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout,
         responseSizeLimit: Int = ProviderPluginRuntime.maximumResponseBytes,
         rejectsNonSuccessResponses: Bool = false,
-        allowsDynamicID: Bool = false) throws
+        allowsDynamicID: Bool = false,
+        engine: ProviderPluginEngineKind = .automatic) throws
+    {
+        try self.init(
+            source: source,
+            resourceBundle: CodexBarCoreResources.bundle,
+            transport: transport,
+            timeout: timeout,
+            responseSizeLimit: responseSizeLimit,
+            rejectsNonSuccessResponses: rejectsNonSuccessResponses,
+            allowsDynamicID: allowsDynamicID,
+            contextOptions: .production,
+            engine: engine)
+    }
+
+    init(
+        source: String,
+        resourceBundle: Bundle?,
+        transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
+        timeout: TimeInterval = ProviderPluginRuntime.defaultTimeout,
+        responseSizeLimit: Int = ProviderPluginRuntime.maximumResponseBytes,
+        rejectsNonSuccessResponses: Bool = false,
+        allowsDynamicID: Bool = false,
+        contextOptions: ProviderPluginContextOptions = .production,
+        engine: ProviderPluginEngineKind = .automatic) throws
     {
         guard timeout > 0 else { throw ProviderPluginError.load("timeout must be positive") }
         guard responseSizeLimit > 0 else { throw ProviderPluginError.load("response size limit must be positive") }
-        guard let preludeURL = Bundle.module.url(
+        if let optionalRequestTimeoutSeconds = contextOptions.optionalRequestTimeoutSeconds,
+           !(1...30).contains(optionalRequestTimeoutSeconds)
+        {
+            throw ProviderPluginError.load("optional request timeout must be from 1 through 30 seconds")
+        }
+        guard let resourceBundle else {
+            throw ProviderPluginError.load(CodexBarCoreResources.missingBundleMessage)
+        }
+        guard let preludeURL = resourceBundle.url(
             forResource: "provider-plugin-prelude",
             withExtension: "js")
         else {
@@ -60,11 +134,15 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
         self.responseSizeLimit = responseSizeLimit
         self.rejectsNonSuccessResponses = rejectsNonSuccessResponses
         self.allowsDynamicID = allowsDynamicID
+        self.contextOptions = contextOptions
+        self.engineKind = Self.resolveEngineKind(engine)
 
-        let worker = try ProviderPluginWorker.make(
+        let worker = try ProviderPluginEngineFactory.make(
+            kind: self.engineKind,
             source: source,
             preludeSource: self.preludeSource,
             transport: transport,
+            timeout: timeout,
             responseSizeLimit: responseSizeLimit,
             rejectsNonSuccessResponses: rejectsNonSuccessResponses,
             allowsDynamicID: allowsDynamicID)
@@ -76,6 +154,7 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
         settings: [String: String] = [:],
         secrets: [String: String] = [:],
         now: Date = Date(),
+        timeZone: TimeZone = .current,
         cookieResolver: CookieResolver? = nil,
         instanceCookieResolver: InstanceCookieResolver? = nil) async throws -> UsageSnapshot
     {
@@ -99,6 +178,8 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
                 settings: sanitizedSettings,
                 secrets: sanitizedSecrets,
                 now: now,
+                timeZone: timeZone,
+                contextOptions: self.contextOptions,
                 cookieResolver: cookieResolver,
                 instanceCookieResolver: instanceCookieResolver)
             { result in
@@ -109,6 +190,7 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
                 let nanoseconds = UInt64(self.timeout * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 if gate.finish(.failure(ProviderPluginError.timedOut)) {
+                    worker.requestInterrupt()
                     self.discard(worker)
                 }
             }
@@ -119,16 +201,18 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
         try self.currentWorker().globalType(of: name)
     }
 
-    private func currentWorker() throws -> ProviderPluginWorker {
+    private func currentWorker() throws -> any ProviderPluginEngine {
         self.lock.lock()
         defer { self.lock.unlock() }
         if let worker = self.worker {
             return worker
         }
-        let worker = try ProviderPluginWorker.make(
+        let worker = try ProviderPluginEngineFactory.make(
+            kind: self.engineKind,
             source: self.source,
             preludeSource: self.preludeSource,
             transport: self.transport,
+            timeout: self.timeout,
             responseSizeLimit: self.responseSizeLimit,
             rejectsNonSuccessResponses: self.rejectsNonSuccessResponses,
             allowsDynamicID: self.allowsDynamicID)
@@ -139,12 +223,38 @@ public final class ProviderPluginRuntime: @unchecked Sendable {
         return worker
     }
 
-    private func discard(_ worker: ProviderPluginWorker) {
+    private func discard(_ worker: any ProviderPluginEngine) {
         self.lock.lock()
-        if self.worker === worker {
+        if let current = self.worker, current === worker {
             self.worker = nil
         }
         self.lock.unlock()
+    }
+
+    static func resolveEngineKind(_ requested: ProviderPluginEngineKind) -> ProviderPluginEngineKind {
+        self.resolveEngineKind(
+            requested,
+            environment: ProcessInfo.processInfo.environment,
+            useJavaScriptCoreRollback: UserDefaults.standard.bool(forKey: self.javaScriptCoreRollbackDefaultsKey))
+    }
+
+    static func resolveEngineKind(
+        _ requested: ProviderPluginEngineKind,
+        environment: [String: String],
+        useJavaScriptCoreRollback: Bool) -> ProviderPluginEngineKind
+    {
+        guard requested == .automatic else { return requested }
+        #if canImport(JavaScriptCore)
+        switch environment[self.engineEnvironmentKey]?.lowercased() {
+        case "jsc": return .javaScriptCore
+        case "quickjs": return .quickJS
+        default:
+            if useJavaScriptCoreRollback {
+                return .javaScriptCore
+            }
+        }
+        #endif
+        return .quickJS
     }
 
     private func redactedError(_ error: Error, secrets: Dictionary<String, String>.Values) -> Error {
@@ -216,6 +326,7 @@ private final class ProviderPluginCompletionGate<Value: Sendable>: @unchecked Se
     }
 }
 
+#if canImport(JavaScriptCore)
 private final class ProviderPluginJSValueBox: @unchecked Sendable {
     let value: JSValue
 
@@ -260,7 +371,7 @@ private final class ProviderPluginRedactionValues: @unchecked Sendable {
     }
 }
 
-private final class ProviderPluginWorker: @unchecked Sendable {
+final class JavaScriptCoreProviderPluginEngine: ProviderPluginEngine, @unchecked Sendable {
     private typealias HTTPBlock = @convention(block) (String, JSValue, String, Bool, JSValue, JSValue) -> Void
     private typealias CookieBlock = @convention(block) (String, JSValue, JSValue) -> Void
 
@@ -269,6 +380,7 @@ private final class ProviderPluginWorker: @unchecked Sendable {
     private let queue: DispatchQueue
     private let context: JSContext
     private let applyPrelude: JSValue
+    private let fetchUsage: JSValue
     private let transport: any ProviderHTTPTransport
     private let responseSizeLimit: Int
     private let rejectsNonSuccessResponses: Bool
@@ -282,11 +394,11 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         transport: any ProviderHTTPTransport,
         responseSizeLimit: Int,
         rejectsNonSuccessResponses: Bool,
-        allowsDynamicID: Bool) throws -> ProviderPluginWorker
+        allowsDynamicID: Bool) throws -> JavaScriptCoreProviderPluginEngine
     {
         let queue = DispatchQueue(label: "com.steipete.codexbar.provider-plugin.\(UUID().uuidString)")
         return try queue.sync {
-            try ProviderPluginWorker(
+            try JavaScriptCoreProviderPluginEngine(
                 queue: queue,
                 source: source,
                 preludeSource: preludeSource,
@@ -335,7 +447,13 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         guard let definition else {
             throw ProviderPluginError.invalidManifest("plugin did not call defineProvider(...)")
         }
-        self.manifest = try ProviderPluginManifest(definition: definition, allowsDynamicID: allowsDynamicID)
+        guard let fetchUsage = definition.forProperty("fetchUsage"), fetchUsage.isObject else {
+            throw ProviderPluginError.invalidManifest("'fetchUsage' must be a function")
+        }
+        self.fetchUsage = fetchUsage
+        self.manifest = try ProviderPluginManifest(
+            definition: JavaScriptCorePluginValue(definition),
+            allowsDynamicID: allowsDynamicID)
     }
 
     func globalType(of name: String) throws -> String {
@@ -356,6 +474,8 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         settings: [String: String],
         secrets: [String: String],
         now: Date,
+        timeZone: TimeZone,
+        contextOptions: ProviderPluginContextOptions,
         cookieResolver: ProviderPluginRuntime.CookieResolver?,
         instanceCookieResolver: ProviderPluginRuntime.InstanceCookieResolver?,
         completion: @escaping @Sendable (Result<UsageSnapshot, Error>) -> Void)
@@ -365,6 +485,8 @@ private final class ProviderPluginWorker: @unchecked Sendable {
                 settings: settings,
                 secrets: secrets,
                 now: now,
+                timeZone: timeZone,
+                contextOptions: contextOptions,
                 cookieResolver: cookieResolver,
                 instanceCookieResolver: instanceCookieResolver,
                 completion: completion)
@@ -376,6 +498,8 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         settings: [String: String],
         secrets: [String: String],
         now: Date,
+        timeZone: TimeZone,
+        contextOptions: ProviderPluginContextOptions,
         cookieResolver: ProviderPluginRuntime.CookieResolver?,
         instanceCookieResolver: ProviderPluginRuntime.InstanceCookieResolver?,
         completion: @escaping @Sendable (Result<UsageSnapshot, Error>) -> Void)
@@ -385,6 +509,9 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         let ctx = self.makeContext(
             settings: settings,
             secrets: secrets,
+            now: now,
+            timeZone: timeZone,
+            contextOptions: contextOptions,
             cookieResolver: cookieResolver,
             instanceCookieResolver: instanceCookieResolver,
             redactionValues: redactionValues)
@@ -398,7 +525,10 @@ private final class ProviderPluginWorker: @unchecked Sendable {
             guard let self else { return }
             defer { self.retainedCallbacks[callbackID] = nil }
             do {
-                let snapshot = try ProviderPluginSnapshotMapper.map(value, provider: self.manifest.id, now: now)
+                let snapshot = try ProviderPluginSnapshotMapper.map(
+                    JavaScriptCorePluginValue(value),
+                    provider: self.manifest.id,
+                    now: now)
                 completion(.success(snapshot))
             } catch {
                 completion(.failure(ProviderPluginError
@@ -412,7 +542,7 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         }
         self.retainedCallbacks[callbackID] = [resolve, reject]
 
-        guard let result = self.manifest.fetchUsage.call(withArguments: [ctx]) else {
+        guard let result = self.fetchUsage.call(withArguments: [ctx]) else {
             self.retainedCallbacks[callbackID] = nil
             completion(.failure(ProviderPluginError
                     .script(Self.exceptionMessage(self.context) ?? "fetchUsage returned no value")))
@@ -435,15 +565,25 @@ private final class ProviderPluginWorker: @unchecked Sendable {
         }
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func makeContext(
         settings: [String: String],
         secrets: [String: String],
+        now: Date,
+        timeZone: TimeZone,
+        contextOptions: ProviderPluginContextOptions,
         cookieResolver: ProviderPluginRuntime.CookieResolver?,
         instanceCookieResolver: ProviderPluginRuntime.InstanceCookieResolver?,
         redactionValues: ProviderPluginRedactionValues) -> JSValue
     {
         let ctx = JSValue(newObjectIn: self.context)!
         let host = JSValue(newObjectIn: self.context)!
+        ctx.setObject(now.timeIntervalSince1970 * 1000, forKeyedSubscript: "__codexbarNowMillis" as NSString)
+        if let optionalRequestTimeoutSeconds = contextOptions.optionalRequestTimeoutSeconds {
+            ctx.setObject(
+                optionalRequestTimeoutSeconds,
+                forKeyedSubscript: "__codexbarOptionalRequestTimeoutSeconds" as NSString)
+        }
 
         let settingGet: @convention(block) (String, Bool) -> JSValue = { [weak self] key, secure in
             guard let self else { return JSValue(undefinedIn: nil) }
@@ -461,6 +601,42 @@ private final class ProviderPluginWorker: @unchecked Sendable {
             return JSValue(object: value, in: self.context)
         }
         host.setObject(settingGet, forKeyedSubscript: "settingGet" as NSString)
+
+        let env = JSValue(newObjectIn: self.context)!
+        env.setObject(Self.normalizedTimeZoneIdentifier(timeZone), forKeyedSubscript: "timeZone" as NSString)
+        ctx.setObject(env, forKeyedSubscript: "env" as NSString)
+        let percentage: @convention(block) (Double, Double) -> Double = { used, limit in
+            guard used.isFinite, limit.isFinite, limit > 0 else { return 100 }
+            return min(100, max(0, used / limit * 100))
+        }
+        host.setObject(percentage, forKeyedSubscript: "pct" as NSString)
+        let amountFromPercent: @convention(block) (Double, Double) -> Double = { percent, limit in
+            percent / 100 * limit
+        }
+        host.setObject(amountFromPercent, forKeyedSubscript: "amountFromPercent" as NSString)
+
+        let nextDailyReset: @convention(block) (String, Double) -> Double = { [weak self] identifier, rawHour in
+            guard rawHour.isFinite,
+                  rawHour.rounded() == rawHour,
+                  (0...23).contains(rawHour),
+                  let timeZone = TimeZone(identifier: identifier)
+            else {
+                self?.context.exception = JSValue(
+                    newErrorFromMessage: "invalid daily reset time zone or hour",
+                    in: self?.context)
+                return .nan
+            }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            let now = Date()
+            let start = calendar.startOfDay(for: now)
+            var candidate = calendar.date(byAdding: .hour, value: Int(rawHour), to: start)!
+            if candidate <= now {
+                candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
+            }
+            return candidate.timeIntervalSince1970 * 1000
+        }
+        host.setObject(nextDailyReset, forKeyedSubscript: "nextDailyReset" as NSString)
 
         let http = self.makeHTTPBlock(settings: settings, secrets: secrets, redactionValues: redactionValues)
         host.setObject(http, forKeyedSubscript: "http" as NSString)
@@ -494,6 +670,17 @@ private final class ProviderPluginWorker: @unchecked Sendable {
 
         _ = self.applyPrelude.call(withArguments: [ctx, host])
         return ctx
+    }
+
+    func requestInterrupt() {}
+
+    private static func normalizedTimeZoneIdentifier(_ timeZone: TimeZone) -> String {
+        if timeZone.secondsFromGMT() == 0,
+           ["GMT", "Etc/GMT", "Etc/UTC", "UTC"].contains(timeZone.identifier)
+        {
+            return "UTC"
+        }
+        return timeZone.identifier
     }
 
     private func makeHTTPBlock(

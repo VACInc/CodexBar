@@ -130,6 +130,9 @@ struct IBMBobUsageFetcherTests {
     }
 
     @Test(arguments: [
+        "evil.example/x.bob.ibm.com",
+        "bob.ibm.com.evil.example",
+        "x@evil.example",
         "evil.example/path/.bob.ibm.com",
         "evil.example?next=.bob.ibm.com",
         "evil.example#.bob.ibm.com",

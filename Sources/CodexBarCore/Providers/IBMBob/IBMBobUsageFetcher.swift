@@ -311,17 +311,12 @@ public enum IBMBobUsageFetcher {
               components.path.isEmpty,
               components.query == nil,
               components.fragment == nil,
-              let parsedHost = components.host,
-              Self.isTrustedHost(parsedHost)
+              let parsedHost = url.host?.lowercased(),
+              parsedHost == "bob.ibm.com" || parsedHost.hasSuffix(".bob.ibm.com")
         else {
             throw IBMBobUsageError.untrustedRegion(host)
         }
         return url
-    }
-
-    private static func isTrustedHost(_ host: String) -> Bool {
-        let normalized = host.lowercased()
-        return normalized == "bob.ibm.com" || normalized.hasSuffix(".bob.ibm.com")
     }
 
     private static func validate(_ response: ProviderHTTPResponse) throws {
@@ -358,7 +353,9 @@ public enum IBMBobUsageFetcher {
         guard let value = self.nonEmpty(value) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) { return date }
+        if let date = formatter.date(from: value) {
+            return date
+        }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: value)
     }

@@ -988,18 +988,32 @@ private final class QuickJSSerialWorker: @unchecked Sendable {
         }
     }
 
+    /// A Thread subclass with an overridden main() instead of Thread(block:): the block closure
+    /// picks up @MainActor inference under some SDKs (Xcode 26.3), and the embedded executor
+    /// check then traps on the first job when the OS runtime enforces isolation dynamically.
+    private final class WorkerThread: Thread {
+        private let state: State
+
+        init(state: State) {
+            self.state = state
+            super.init()
+        }
+
+        override func main() {
+            defer { self.state.markStopped() }
+            while let job = self.state.next() {
+                job()
+            }
+        }
+    }
+
     private let state: State
-    private let thread: Thread
+    private let thread: WorkerThread
 
     init(name: String, stackSizeBytes: Int) {
         let state = State()
         self.state = state
-        self.thread = Thread {
-            defer { state.markStopped() }
-            while let job = state.next() {
-                job()
-            }
-        }
+        self.thread = WorkerThread(state: state)
         self.thread.name = name
         self.thread.stackSize = stackSizeBytes
         self.thread.start()

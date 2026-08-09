@@ -164,6 +164,15 @@ and 120 characters per detail string. Wrong types and limit violations fail the 
 
 ## TypeScript
 
+[`codexbar-plugin.d.ts`](../Sources/CodexBarCore/Resources/Plugins/codexbar-plugin.d.ts) is the canonical authoring
+contract for `defineProvider`, the `ctx` host API, manifests, and usage snapshots. Bundled plugins may use that contract
+directly as `.ts` sources. `Scripts/regenerate-plugin-js.sh` transpiles them with the vendored Sucrase build into
+committed sibling `.js` files; the runtime continues to load only those JavaScript files, so bundled TypeScript has no
+runtime compilation cost. `make check` verifies both the TypeScript contract and generated-file freshness.
+
+For bundled-plugin work, run `make format` after editing TypeScript so the committed JavaScript is regenerated. Do not
+edit a generated sibling `.js` file directly.
+
 TypeScript files are transpiled by the selected plugin engine with the bundled Sucrase 3.35.1 build using its
 `typescript` transform. Use ordinary
 type syntax but no module imports, JSX, decorators, or runtime TypeScript features that require module resolution.

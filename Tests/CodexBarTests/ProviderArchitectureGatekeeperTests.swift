@@ -3265,14 +3265,6 @@ struct ProviderArchitectureGatekeeperTests {
             expectedReferenceFingerprint: ["claude@0"],
             reason: "This exact app-runtime bridge coordinates provider-owned state through the shared controller."),
         AllowedProviderConstruct(
-            path: "Sources/CodexBarCLI/CLICardsCommand.swift",
-            line: 170,
-            anchor: "includeAllCodexAccounts: tokenSelection.allAccounts && providerList == [.codex],",
-            expectedProviderIDs: ["codex"],
-            expectedReferenceCount: 1,
-            expectedReferenceFingerprint: ["codex@0"],
-            reason: "This exact CLI construct preserves the provider-specific command and output contract."),
-        AllowedProviderConstruct(
             path: "Sources/CodexBarCLI/CLICostCommand.swift",
             line: 208,
             anchor: "provider == .codex",
@@ -3303,14 +3295,6 @@ struct ProviderArchitectureGatekeeperTests {
             expectedProviderIDs: ["cursor"],
             expectedReferenceCount: 1,
             expectedReferenceFingerprint: ["cursor@0"],
-            reason: "This exact CLI construct preserves the provider-specific command and output contract."),
-        AllowedProviderConstruct(
-            path: "Sources/CodexBarCLI/CLIUsageCommand.swift",
-            line: 182,
-            anchor: "includeAllCodexAccounts: tokenSelection.allAccounts && providerList == [.codex],",
-            expectedProviderIDs: ["codex"],
-            expectedReferenceCount: 1,
-            expectedReferenceFingerprint: ["codex@0"],
             reason: "This exact CLI construct preserves the provider-specific command and output contract."),
         AllowedProviderConstruct(
             path: "Sources/CodexBarCore/AgentSession.swift",

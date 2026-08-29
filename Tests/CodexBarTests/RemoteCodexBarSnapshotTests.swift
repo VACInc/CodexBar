@@ -40,7 +40,7 @@ struct RemoteCodexBarSnapshotTests {
     }
 
     @Test
-    func `client sends bearer auth decodes schema v1 and projects provider cards`() async throws {
+    func `client sends bearer auth decodes schema v1 and projects account cards over ambient provider`() async throws {
         let body = Data(Self.snapshotJSON.utf8)
         let transport = ProviderHTTPTransportHandler { request in
             #expect(request.url?.absoluteString == "https://example.com/dashboard/v1/snapshot")
@@ -62,19 +62,12 @@ struct RemoteCodexBarSnapshotTests {
         #expect(snapshot.providers.count == 1)
 
         let projection = RemoteCodexBarProjection.make(snapshot: snapshot, serverURL: configuration.snapshotURL)
-        #expect(projection.snapshots.count == 2)
-        let provider = try #require(projection.snapshots.first)
-        #expect(provider.provider == UsageProvider.codex.instanceID)
-        #expect(provider.accountKey == AccountSnapshotSyncPayload.accountKey(for: "person@example.com"))
-        #expect(projection.snapshots[1].accountKey ==
-            AccountSnapshotSyncPayload.accountKey(
-                for: "https://example.com/dashboard/v1/snapshot|codex|slot:1"))
-        #expect(provider.displayLabel == "person@example.com")
-        #expect(provider.usage.primary?.usedPercent == 25)
-        #expect(provider.usage.secondary?.usedPercent == 60)
-        #expect(provider.usage.extraRateWindows?.first?.title == "Spark")
-        #expect(provider.usage.identity?.loginMethod == "Plus")
-        #expect(provider.usage.details.first?.rows.contains(where: { $0.label == "Today" }) == true)
+        #expect(projection.snapshots.count == 1)
+        let account = try #require(projection.snapshots.first)
+        #expect(account.provider == UsageProvider.codex.instanceID)
+        #expect(account.accountKey == AccountSnapshotSyncPayload.accountKey(for: "work@example.com"))
+        #expect(account.displayLabel == "Work")
+        #expect(account.usage.primary?.usedPercent == 15)
     }
 
     @Test
@@ -245,6 +238,35 @@ struct RemoteCodexBarSnapshotTests {
             redirectRequest: redirect) == nil)
     }
 
+    @Test
+    func `production transport propagates task cancellation to the URL session request`() async throws {
+        RemoteCodexBarCancellableURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteCodexBarCancellableURLProtocol.self]
+        let transport = RemoteCodexBarBoundedHTTPTransport(
+            maximumResponseBytes: 32,
+            configuration: configuration)
+        let request = try URLRequest(url: #require(URL(string: "https://example.com/dashboard/v1/snapshot")))
+        let task = Task { try await transport.data(for: request) }
+
+        let deadline = ContinuousClock.now + .seconds(1)
+        while RemoteCodexBarCancellableURLProtocol.requestCount == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(RemoteCodexBarCancellableURLProtocol.requestCount == 1)
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        let cancellationDeadline = ContinuousClock.now + .seconds(1)
+        while RemoteCodexBarCancellableURLProtocol.cancelCount == 0,
+              ContinuousClock.now < cancellationDeadline
+        {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(RemoteCodexBarCancellableURLProtocol.cancelCount == 1)
+    }
+
     @MainActor
     @Test
     func `editing the endpoint clears the token before publishing the new server`() {
@@ -393,6 +415,10 @@ struct RemoteCodexBarSnapshotTests {
         let projection = RemoteCodexBarProjection.make(snapshot: snapshot, serverURL: serverURL)
         #expect(projection.snapshots.count == 2)
         #expect(Set(projection.snapshots.map(\.accountKey)).count == 2)
+        #expect(Set(projection.snapshots.map(\.accountKey)) == Set([
+            AccountSnapshotSyncPayload.accountKey(for: "slot:1"),
+            AccountSnapshotSyncPayload.accountKey(for: "slot:2"),
+        ]))
         #expect(Set(projection.snapshots.map(\.displayLabel)) == Set(["Personal", "Work"]))
     }
 
@@ -506,4 +532,41 @@ private final class RemoteCodexBarOversizedURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private final class RemoteCodexBarCancellableURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var requestCountStorage = 0
+    private nonisolated(unsafe) static var cancelCountStorage = 0
+
+    static var requestCount: Int {
+        self.lock.withLock { self.requestCountStorage }
+    }
+
+    static var cancelCount: Int {
+        self.lock.withLock { self.cancelCountStorage }
+    }
+
+    static func reset() {
+        self.lock.withLock {
+            self.requestCountStorage = 0
+            self.cancelCountStorage = 0
+        }
+    }
+
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.requestCountStorage += 1 }
+    }
+
+    override func stopLoading() {
+        Self.lock.withLock { Self.cancelCountStorage += 1 }
+    }
 }

@@ -125,6 +125,28 @@ final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport,
         let continuation: CheckedContinuation<(Data, URLResponse), Error>
     }
 
+    private final class RequestCancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: URLSessionDataTask?
+        private var isCancelled = false
+
+        func install(_ task: URLSessionDataTask) -> Bool {
+            self.lock.withLock {
+                guard !self.isCancelled else { return false }
+                self.task = task
+                return true
+            }
+        }
+
+        func cancel() {
+            let task = self.lock.withLock {
+                self.isCancelled = true
+                return self.task
+            }
+            task?.cancel()
+        }
+    }
+
     private let maximumResponseBytes: Int
     private let lock = NSLock()
     private var states: [Int: RequestState] = [:]
@@ -148,12 +170,21 @@ final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport,
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        try await withCheckedThrowingContinuation { continuation in
-            let task = self.session.dataTask(with: request)
-            self.lock.withLock {
-                self.states[task.taskIdentifier] = RequestState(continuation: continuation)
+        let cancellation = RequestCancellation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = self.session.dataTask(with: request)
+                guard cancellation.install(task) else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                self.lock.withLock {
+                    self.states[task.taskIdentifier] = RequestState(continuation: continuation)
+                }
+                task.resume()
             }
-            task.resume()
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -203,7 +234,12 @@ final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport,
 
     func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
-            self.finish(taskIdentifier: task.taskIdentifier, result: .failure(error))
+            let resolvedError: Error = if (error as? URLError)?.code == .cancelled {
+                CancellationError()
+            } else {
+                error
+            }
+            self.finish(taskIdentifier: task.taskIdentifier, result: .failure(resolvedError))
             return
         }
         let result: Result<(Data, URLResponse), Error> = self.lock.withLock {
@@ -343,15 +379,16 @@ struct RemoteCodexBarProjection: Sendable {
             guard let provider = UsageProvider(rawValue: row.id) else { continue }
             let providerIdentity = row.identity?.accountEmail
                 ?? "\(serverIdentity)|\(row.id)|default"
-            if let usage = self.usageSnapshot(
-                provider: provider,
-                windows: row.windows,
-                identity: row.identity,
-                status: row.status,
-                credits: row.credits,
-                cost: row.cost,
-                error: row.error?.message ?? row.accountsError,
-                updatedAt: row.updatedAt ?? snapshot.generatedAt)
+            if row.accounts.isEmpty,
+               let usage = self.usageSnapshot(
+                   provider: provider,
+                   windows: row.windows,
+                   identity: row.identity,
+                   status: row.status,
+                   credits: row.credits,
+                   cost: row.cost,
+                   error: row.error?.message ?? row.accountsError,
+                   updatedAt: row.updatedAt ?? snapshot.generatedAt)
             {
                 projected.append(AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
@@ -375,12 +412,41 @@ struct RemoteCodexBarProjection: Sendable {
                 projected.append(AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
                     deviceID: "remote-codexbar",
-                    accountIdentity: "\(serverIdentity)|\(row.id)|\(account.id)",
+                    accountIdentity: self.accountIdentity(
+                        account,
+                        in: row.accounts,
+                        providerID: row.id,
+                        serverIdentity: serverIdentity),
                     displayLabel: account.label,
                     usage: usage))
             }
         }
         return Self(snapshots: projected)
+    }
+
+    private static func accountIdentity(
+        _ account: RemoteCodexBarSnapshot.Account,
+        in accounts: [RemoteCodexBarSnapshot.Account],
+        providerID: String,
+        serverIdentity: String) -> String
+    {
+        let email = account.identity?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emailLocalPart = email.flatMap { $0.split(separator: "@", maxSplits: 1).first.map(String.init) }
+        let isRedactedEmail = emailLocalPart?.caseInsensitiveCompare("redacted") == .orderedSame
+        if let email, !email.isEmpty, !isRedactedEmail {
+            let matchingEmailCount = accounts.count {
+                let candidate = $0.identity?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return candidate?.caseInsensitiveCompare(email) == .orderedSame
+            }
+            if matchingEmailCount == 1 {
+                return email
+            }
+        }
+        let accountID = account.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !accountID.isEmpty {
+            return accountID
+        }
+        return "\(serverIdentity)|\(providerID)|\(account.id)"
     }
 
     // Projection stays explicit because each server field has a distinct display fallback.

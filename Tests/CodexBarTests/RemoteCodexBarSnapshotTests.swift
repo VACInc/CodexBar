@@ -33,6 +33,8 @@ struct RemoteCodexBarSnapshotTests {
             bearerToken: "token",
             allowsPlainHTTP: true))
         #expect(tailscaleHTTP.snapshotURL.absoluteString == "http://100.100.10.20:9876/dashboard/v1/snapshot")
+        #expect(ProviderEndpointOverrideValidator().validatedURLAllowingPrivateNetworkHTTP(
+            "http://100.100.10.20:9876") == nil)
         #expect(RemoteCodexBarConfiguration.requiresPlainHTTPConsent(
             serverURL: "http://100.100.10.20:9876"))
         #expect(RemoteCodexBarConfiguration.resolve(

@@ -19,9 +19,9 @@ struct RemoteCodexBarConfiguration: Equatable, Sendable {
         let validator = ProviderEndpointOverrideValidator()
         let normalizedServerURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty,
-              !validator.requiresExplicitPlainHTTPConsent(normalizedServerURL) || allowsPlainHTTP,
+              !validator.requiresExplicitRemoteCodexBarPlainHTTPConsent(normalizedServerURL) || allowsPlainHTTP,
               var components = validator
-                  .validatedURLAllowingPrivateNetworkHTTP(normalizedServerURL)
+                  .validatedURLAllowingRemoteCodexBarHTTP(normalizedServerURL)
                   .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }),
                   components.query == nil,
                   components.fragment == nil
@@ -41,7 +41,7 @@ struct RemoteCodexBarConfiguration: Equatable, Sendable {
     }
 
     static func requiresPlainHTTPConsent(serverURL: String) -> Bool {
-        ProviderEndpointOverrideValidator().requiresExplicitPlainHTTPConsent(
+        ProviderEndpointOverrideValidator().requiresExplicitRemoteCodexBarPlainHTTPConsent(
             serverURL.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

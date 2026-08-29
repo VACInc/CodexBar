@@ -57,8 +57,21 @@ public struct ProviderEndpointOverrideValidator: Sendable {
         self.validatedURL(raw, allowingHTTPFor: Self.isPrivateNetworkHost)
     }
 
+    public func validatedURLAllowingRemoteCodexBarHTTP(_ raw: String?) -> URL? {
+        self.validatedURL(raw, allowingHTTPFor: { host in
+            Self.isPrivateNetworkHost(host) || Self.isSharedAddressSpaceHost(host)
+        })
+    }
+
     public func requiresExplicitPlainHTTPConsent(_ raw: String?) -> Bool {
         guard let url = self.validatedURLAllowingPrivateNetworkHTTP(raw),
+              url.scheme?.lowercased() == "http"
+        else { return false }
+        return self.validatedURLAllowingLoopbackHTTP(raw) == nil
+    }
+
+    public func requiresExplicitRemoteCodexBarPlainHTTPConsent(_ raw: String?) -> Bool {
+        guard let url = self.validatedURLAllowingRemoteCodexBarHTTP(raw),
               url.scheme?.lowercased() == "http"
         else { return false }
         return self.validatedURLAllowingLoopbackHTTP(raw) == nil
@@ -147,7 +160,6 @@ public struct ProviderEndpointOverrideValidator: Sendable {
 
         if let octets = Self.ipv4Octets(host) {
             return octets[0] == 10 ||
-                (octets[0] == 100 && (64...127).contains(octets[1])) ||
                 (octets[0] == 172 && (16...31).contains(octets[1])) ||
                 (octets[0] == 192 && octets[1] == 168) ||
                 (octets[0] == 169 && octets[1] == 254)
@@ -160,6 +172,11 @@ public struct ProviderEndpointOverrideValidator: Sendable {
         else { return false }
 
         return firstValue & 0xFE00 == 0xFC00 || firstValue & 0xFFC0 == 0xFE80
+    }
+
+    private static func isSharedAddressSpaceHost(_ host: String) -> Bool {
+        guard let octets = Self.ipv4Octets(host) else { return false }
+        return octets[0] == 100 && (64...127).contains(octets[1])
     }
 
     private static func ipv4Octets(_ host: String) -> [UInt8]? {

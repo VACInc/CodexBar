@@ -121,8 +121,9 @@ extension SettingsStore {
     func remoteCodexBarURLValidationMessage(for serverURL: String) -> String? {
         let raw = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
-        guard ProviderEndpointOverrideValidator().validatedURLAllowingPrivateNetworkHTTP(raw) != nil else {
-            return "Use HTTPS, or HTTP only for loopback/private-network hosts. User info is not allowed."
+        guard ProviderEndpointOverrideValidator().validatedURLAllowingRemoteCodexBarHTTP(raw) != nil else {
+            return "Use HTTPS, or HTTP only for loopback, private-network, or Tailscale/CGNAT hosts. " +
+                "User info is not allowed."
         }
         guard URLComponents(string: raw)?.query == nil, URLComponents(string: raw)?.fragment == nil else {
             return "The server URL cannot include a query or fragment."

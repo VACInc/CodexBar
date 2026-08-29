@@ -116,6 +116,74 @@ struct RemoteCodexBarSnapshotTests {
 
     @MainActor
     @Test
+    func `failed token replacement preserves the prior durable authority pair`() async throws {
+        let tokens = FailingRemoteCodexBarTokenStore()
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-failed-token-replacement",
+            remoteCodexBarTokenStore: tokens)
+        #expect(settings.applyRemoteCodexBarConfiguration(
+            serverURL: "https://server-a.example.com",
+            bearerToken: "server-a-token"))
+        tokens.failWrites = true
+
+        #expect(!settings.applyRemoteCodexBarConfiguration(
+            serverURL: "https://server-b.example.com",
+            bearerToken: "server-b-token"))
+        #expect(settings.remoteCodexBarServerURL == "https://server-a.example.com")
+        #expect(settings.remoteCodexBarBearerToken == "server-a-token")
+        #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
+            "https://server-a.example.com")
+        #expect(try tokens.loadToken() == "server-a-token")
+
+        let persisted = try #require(RemoteCodexBarConfiguration.resolve(
+            serverURL: settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ?? "",
+            bearerToken: try tokens.loadToken() ?? ""))
+        let requests = LockIsolated<[URLRequest]>([])
+        let transport = ProviderHTTPTransportHandler { request in
+            requests.setValue(requests.value + [request])
+            let response = try #require(HTTPURLResponse(
+                url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil))
+            return (Data(), response)
+        }
+
+        await #expect(throws: RemoteCodexBarSnapshotError.unauthorized) {
+            try await RemoteCodexBarSnapshotClient(transport: transport).fetch(configuration: persisted)
+        }
+        #expect(requests.value.map(\.url?.host) == ["server-a.example.com"])
+        #expect(requests.value.map { $0.value(forHTTPHeaderField: "Authorization") } ==
+            ["Bearer server-a-token"])
+    }
+
+    @Test
+    func `production transport aborts oversized retryable responses without retrying`() async throws {
+        RemoteCodexBarOversizedURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RemoteCodexBarOversizedURLProtocol.self]
+        let transport = RemoteCodexBarBoundedHTTPTransport(
+            maximumResponseBytes: 32,
+            configuration: configuration)
+        let remoteConfiguration = try #require(RemoteCodexBarConfiguration.resolve(
+            serverURL: "https://example.com",
+            bearerToken: "secret-value"))
+
+        await #expect(throws: RemoteCodexBarSnapshotError.responseTooLarge) {
+            try await RemoteCodexBarSnapshotClient(transport: transport).fetch(configuration: remoteConfiguration)
+        }
+        #expect(RemoteCodexBarOversizedURLProtocol.requestCount == 1)
+    }
+
+    @Test
+    func `production transport blocks bearer redirects to another origin`() throws {
+        var redirect = try URLRequest(url: #require(URL(string: "https://attacker.example/capture")))
+        redirect.setValue("Bearer secret-value", forHTTPHeaderField: "Authorization")
+
+        #expect(RemoteCodexBarBoundedHTTPTransport.guardedRedirectRequest(
+            originalURL: URL(string: "https://server.example/dashboard/v1/snapshot"),
+            redirectRequest: redirect) == nil)
+    }
+
+    @MainActor
+    @Test
     func `editing the endpoint clears the token before publishing the new server`() {
         let tokens = InMemoryRemoteCodexBarTokenStore()
         let settings = testSettingsStore(
@@ -284,4 +352,44 @@ struct RemoteCodexBarSnapshotTests {
       }]
     }
     """
+}
+
+private final class RemoteCodexBarOversizedURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var requestCountStorage = 0
+
+    static var requestCount: Int {
+        self.lock.withLock { self.requestCountStorage }
+    }
+
+    static func reset() {
+        self.lock.withLock { self.requestCountStorage = 0 }
+    }
+
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.requestCountStorage += 1 }
+        guard let url = self.request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 503,
+                  httpVersion: "HTTP/1.1",
+                  headerFields: nil)
+        else {
+            self.client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        self.client?.urlProtocol(self, didLoad: Data(repeating: 0x41, count: 64))
+        self.client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

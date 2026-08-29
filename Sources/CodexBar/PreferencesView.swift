@@ -30,7 +30,7 @@ enum SettingsPane: Hashable {
     var title: String {
         switch self {
         case .general: L("tab_general")
-        case .iCloudSync: L("iCloud Sync")
+        case .iCloudSync: L("Sync")
         case .usageSpend: L("tab_usage_spend")
         case .notifications: L("tab_notifications")
         case .menuBar: L("tab_menu_bar")
@@ -162,7 +162,7 @@ struct PreferencesView: View {
         case .general:
             GeneralPane(settings: self.settings)
         case .iCloudSync:
-            ICloudSyncPane(settings: self.settings, state: self.cloudSyncState)
+            ICloudSyncPane(settings: self.settings, store: self.store, state: self.cloudSyncState)
         case .usageSpend:
             SpendDashboardPane(settings: self.settings, store: self.store)
         case .notifications:
@@ -172,7 +172,7 @@ struct PreferencesView: View {
         case .menu:
             MenuPane(settings: self.settings, store: self.store)
         case .advanced:
-            AdvancedPane(settings: self.settings, store: self.store)
+            AdvancedPane(settings: self.settings)
         case .hooks:
             HooksPane(settings: self.settings)
         case .plugins:

@@ -59,7 +59,11 @@ struct RemoteCodexBarSnapshotClient: Sendable {
 
     let transport: any ProviderHTTPTransport
 
-    init(transport: any ProviderHTTPTransport = ProviderHTTPClient.shared) {
+    init() {
+        self.transport = RemoteCodexBarBoundedHTTPTransport(maximumResponseBytes: Self.maximumResponseBytes)
+    }
+
+    init(transport: any ProviderHTTPTransport) {
         self.transport = transport
     }
 
@@ -97,6 +101,132 @@ struct RemoteCodexBarSnapshotClient: Sendable {
             throw RemoteCodexBarSnapshotError.unsupportedSchema(snapshot.schemaVersion)
         }
         return snapshot
+    }
+}
+
+final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport, URLSessionDataDelegate,
+    @unchecked Sendable
+{
+    private struct RequestState {
+        var data = Data()
+        var response: URLResponse?
+        let continuation: CheckedContinuation<(Data, URLResponse), Error>
+    }
+
+    private let maximumResponseBytes: Int
+    private let lock = NSLock()
+    private var states: [Int: RequestState] = [:]
+    private let configuration: URLSessionConfiguration
+    private lazy var session = URLSession(configuration: self.configuration, delegate: self, delegateQueue: nil)
+
+    init(
+        maximumResponseBytes: Int,
+        configuration: URLSessionConfiguration? = nil)
+    {
+        self.maximumResponseBytes = maximumResponseBytes
+        let resolvedConfiguration = configuration ?? URLSessionConfiguration.ephemeral
+        resolvedConfiguration.httpCookieStorage = nil
+        resolvedConfiguration.httpShouldSetCookies = false
+        resolvedConfiguration.urlCredentialStorage = nil
+        resolvedConfiguration.urlCache = nil
+        resolvedConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        resolvedConfiguration.timeoutIntervalForRequest = 30
+        resolvedConfiguration.timeoutIntervalForResource = 30
+        self.configuration = resolvedConfiguration
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            let task = self.session.dataTask(with: request)
+            self.lock.withLock {
+                self.states[task.taskIdentifier] = RequestState(continuation: continuation)
+            }
+            task.resume()
+        }
+    }
+
+    func urlSession(
+        _: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void)
+    {
+        completionHandler(Self.guardedRedirectRequest(
+            originalURL: task.originalRequest?.url,
+            redirectRequest: request))
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void)
+    {
+        if response.expectedContentLength > Int64(self.maximumResponseBytes) {
+            completionHandler(.cancel)
+            self.finish(
+                taskIdentifier: dataTask.taskIdentifier,
+                result: .failure(RemoteCodexBarSnapshotError.responseTooLarge))
+            return
+        }
+        self.lock.withLock { self.states[dataTask.taskIdentifier]?.response = response }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let exceeded = self.lock.withLock {
+            guard var state = self.states[dataTask.taskIdentifier] else { return false }
+            guard data.count <= self.maximumResponseBytes - state.data.count else { return true }
+            state.data.append(data)
+            self.states[dataTask.taskIdentifier] = state
+            return false
+        }
+        guard exceeded else { return }
+        dataTask.cancel()
+        self.finish(
+            taskIdentifier: dataTask.taskIdentifier,
+            result: .failure(RemoteCodexBarSnapshotError.responseTooLarge))
+    }
+
+    func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            self.finish(taskIdentifier: task.taskIdentifier, result: .failure(error))
+            return
+        }
+        let result: Result<(Data, URLResponse), Error> = self.lock.withLock {
+            guard let state = self.states[task.taskIdentifier], let response = state.response else {
+                return .failure(URLError(.badServerResponse))
+            }
+            return .success((state.data, response))
+        }
+        self.finish(taskIdentifier: task.taskIdentifier, result: result)
+    }
+
+    private func finish(taskIdentifier: Int, result: Result<(Data, URLResponse), Error>) {
+        let continuation = self.lock.withLock { self.states.removeValue(forKey: taskIdentifier)?.continuation }
+        continuation?.resume(with: result)
+    }
+
+    static func guardedRedirectRequest(originalURL: URL?, redirectRequest request: URLRequest) -> URLRequest? {
+        guard let originalURL, let redirectedURL = request.url else { return nil }
+        guard originalURL.scheme?.caseInsensitiveCompare(redirectedURL.scheme ?? "") == .orderedSame else {
+            return nil
+        }
+        guard originalURL.host?.caseInsensitiveCompare(redirectedURL.host ?? "") == .orderedSame else {
+            return nil
+        }
+        guard self.normalizedPort(originalURL) == self.normalizedPort(redirectedURL) else { return nil }
+        return request
+    }
+
+    private static func normalizedPort(_ url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": 80
+        case "https": 443
+        default: nil
+        }
     }
 }
 

@@ -32,6 +32,11 @@ struct PreferencesSelectionTests {
     }
 
     @Test
+    func `sync pane has a provider neutral title`() {
+        #expect(SettingsPane.iCloudSync.title == "Sync")
+    }
+
+    @Test
     func `selection restores persisted pane and saves changes`() throws {
         let suite = "PreferencesSelectionTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

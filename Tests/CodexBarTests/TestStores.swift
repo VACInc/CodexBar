@@ -190,6 +190,24 @@ final class InMemoryRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unche
     }
 }
 
+final class FailingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: String?
+    var failWrites = false
+
+    init(value: String? = nil) {
+        self.value = value
+    }
+
+    func loadToken() throws -> String? {
+        self.value
+    }
+
+    func storeToken(_ token: String?) throws {
+        guard !self.failWrites else { throw RemoteCodexBarTokenStoreError.writeFailed }
+        self.value = token
+    }
+}
+
 final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
     var value: String?
     var loadAttempts = 0

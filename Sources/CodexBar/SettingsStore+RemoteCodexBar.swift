@@ -14,22 +14,34 @@ extension SettingsStore {
     var remoteCodexBarBearerToken: String {
         get { self.remoteCodexBarBearerTokenStorage }
         set {
-            self.remoteCodexBarBearerTokenStorage = newValue
-            self.remoteCodexBarTokenLoadNeedsRetry = false
+            let normalizedToken = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             do {
-                try self.remoteCodexBarTokenStore.storeToken(newValue)
+                try self.remoteCodexBarTokenStore.storeToken(normalizedToken)
+                self.remoteCodexBarBearerTokenStorage = normalizedToken
+                self.remoteCodexBarTokenLoadNeedsRetry = false
                 self.remoteCodexBarSecretError = nil
             } catch {
                 self.remoteCodexBarSecretError = error.localizedDescription
+                return
             }
             self.remoteCodexBarConfigurationRevision &+= 1
             self.noteBackgroundWorkSettingsChanged()
         }
     }
 
-    func applyRemoteCodexBarConfiguration(serverURL: String, bearerToken: String) {
+    @discardableResult
+    func applyRemoteCodexBarConfiguration(serverURL: String, bearerToken: String) -> Bool {
         let normalizedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedToken = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Commit the credential before publishing its endpoint. If Keychain rejects the write or clear,
+        // the previously matched endpoint/token pair remains active and durable.
+        do {
+            try self.remoteCodexBarTokenStore.storeToken(normalizedToken)
+        } catch {
+            self.remoteCodexBarSecretError = error.localizedDescription
+            return false
+        }
 
         // These storage properties are deliberately not part of menu observation. Publishing one
         // revision after both values change makes the endpoint/token pair atomic to refresh consumers.
@@ -37,14 +49,10 @@ extension SettingsStore {
         self.remoteCodexBarBearerTokenStorage = normalizedToken
         self.userDefaults.set(normalizedURL, forKey: "remoteCodexBarServerURL")
         self.remoteCodexBarTokenLoadNeedsRetry = false
-        do {
-            try self.remoteCodexBarTokenStore.storeToken(normalizedToken)
-            self.remoteCodexBarSecretError = nil
-        } catch {
-            self.remoteCodexBarSecretError = error.localizedDescription
-        }
+        self.remoteCodexBarSecretError = nil
         self.remoteCodexBarConfigurationRevision &+= 1
         self.noteBackgroundWorkSettingsChanged()
+        return true
     }
 
     func retryRemoteCodexBarTokenLoadIfNeeded() {

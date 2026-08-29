@@ -4,10 +4,21 @@ import SwiftUI
 @MainActor
 struct ICloudSyncPane: View {
     @Bindable var settings: SettingsStore
+    @Bindable var store: UsageStore
     @Bindable var state: CloudSyncState
+    @State private var remoteCodexBarServerURLDraft: String
+    @State private var remoteCodexBarBearerTokenDraft: String
     private static let securityFootnote =
         "Secrets use iCloud end-to-end encryption via encryptedValues. " +
         "Hooks and machine-local paths never sync."
+
+    init(settings: SettingsStore, store: UsageStore, state: CloudSyncState) {
+        self.settings = settings
+        self.store = store
+        self.state = state
+        self._remoteCodexBarServerURLDraft = State(initialValue: settings.remoteCodexBarServerURL)
+        self._remoteCodexBarBearerTokenDraft = State(initialValue: settings.remoteCodexBarBearerToken)
+    }
 
     var body: some View {
         Form {
@@ -49,6 +60,42 @@ struct ICloudSyncPane: View {
             }
 
             Section {
+                TextField("https://codexbar.example", text: self.$remoteCodexBarServerURLDraft)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Connect") {
+                        self.settings.applyRemoteCodexBarConfiguration(
+                            serverURL: self.remoteCodexBarServerURLDraft,
+                            bearerToken: self.remoteCodexBarBearerTokenDraft)
+                    }
+                    .disabled(self.remoteCodexBarDraftConfiguration == nil || !self.remoteCodexBarDraftHasChanges)
+
+                    Button("Disconnect", role: .destructive) {
+                        if self.settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "") {
+                            self.remoteCodexBarServerURLDraft = ""
+                            self.remoteCodexBarBearerTokenDraft = ""
+                        }
+                    }
+                    .disabled(self.settings.remoteCodexBarConfiguration == nil)
+                }
+            } header: {
+                Text("Remote CodexBar")
+            } footer: {
+                if let message = self.settings.remoteCodexBarURLValidationMessage(
+                    for: self.remoteCodexBarServerURLDraft) ??
+                    self.settings.remoteCodexBarSecretError ??
+                    self.store.remoteCodexBarError
+                {
+                    SettingsSectionFooter(message)
+                } else {
+                    SettingsSectionFooter(
+                        "Connects to a separately running codexbar serve and shows its provider snapshots in menus.")
+                }
+            }
+
+            Section {
                 LabeledContent(
                     L("Last successful fetch"),
                     value: self.relativeTime(self.state.status.lastSuccessfulFetchAt))
@@ -82,6 +129,17 @@ struct ICloudSyncPane: View {
 
     private var syncCanBeEnabled: Bool {
         self.state.availability == .available
+    }
+
+    private var remoteCodexBarDraftConfiguration: RemoteCodexBarConfiguration? {
+        RemoteCodexBarConfiguration.resolve(
+            serverURL: self.remoteCodexBarServerURLDraft,
+            bearerToken: self.remoteCodexBarBearerTokenDraft)
+    }
+
+    private var remoteCodexBarDraftHasChanges: Bool {
+        self.remoteCodexBarServerURLDraft != self.settings.remoteCodexBarServerURL ||
+            self.remoteCodexBarBearerTokenDraft != self.settings.remoteCodexBarBearerToken
     }
 
     private var syncCanRun: Bool {

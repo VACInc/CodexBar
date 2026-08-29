@@ -33,7 +33,7 @@ struct SettingsSidebarView: View {
     private var appPanesSection: some View {
         Section {
             SettingsSidebarPaneRow(pane: .general, systemImage: "gearshape.fill", color: .gray)
-            SettingsSidebarPaneRow(pane: .iCloudSync, systemImage: "icloud.fill", color: .blue)
+            SettingsSidebarPaneRow(pane: .iCloudSync, systemImage: "arrow.triangle.2.circlepath", color: .blue)
             SettingsSidebarPaneRow(pane: .usageSpend, systemImage: "chart.bar.fill", color: .green)
             SettingsSidebarPaneRow(pane: .notifications, systemImage: "bell.badge.fill", color: .red)
             SettingsSidebarPaneRow(pane: .menuBar, systemImage: "menubar.rectangle", color: .blue)

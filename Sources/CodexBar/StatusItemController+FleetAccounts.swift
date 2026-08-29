@@ -91,11 +91,32 @@ extension StatusItemController {
         }
         let badge = FleetAccountMenuPlanner.badge(deviceName: deviceName, fetchedAt: snapshot.fetchedAt)
         let label = snapshot.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displaySnapshot = self.fleetAccountDisplaySnapshot(
+            snapshot.usage,
+            provider: provider,
+            label: label)
         return self.menuCardModel(
             for: provider,
-            snapshotOverride: snapshot.usage,
+            snapshotOverride: displaySnapshot,
             forceOverrideCard: true,
             accountOverride: AccountInfo(email: label.isEmpty ? nil : label, plan: nil),
             subtitleOverride: badge)
+    }
+
+    private func fleetAccountDisplaySnapshot(
+        _ snapshot: UsageSnapshot,
+        provider: UsageProvider,
+        label: String) -> UsageSnapshot
+    {
+        guard !label.isEmpty,
+              snapshot.accountEmail(for: provider)?.caseInsensitiveCompare(label) != .orderedSame
+        else { return snapshot }
+        let identity = snapshot.identity
+        return snapshot.withIdentity(ProviderIdentitySnapshot(
+            providerID: identity?.providerID ?? provider.instanceID,
+            accountEmail: label,
+            accountOrganization: identity?.accountOrganization,
+            loginMethod: identity?.loginMethod,
+            accountID: identity?.accountID))
     }
 }

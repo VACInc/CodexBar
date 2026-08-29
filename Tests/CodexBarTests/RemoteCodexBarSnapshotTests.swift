@@ -456,7 +456,12 @@ struct RemoteCodexBarSnapshotTests {
         let usage = UsageSnapshot(
             primary: RateWindow(usedPercent: 40, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
             secondary: nil,
-            updatedAt: .now)
+            updatedAt: .now,
+            identity: ProviderIdentitySnapshot(
+                providerID: UsageProvider.codex.instanceID,
+                accountEmail: "person@example.com",
+                accountOrganization: nil,
+                loginMethod: "Plus"))
         store.remoteCodexBarSnapshots = [AccountSnapshotSyncPayload(
             provider: UsageProvider.codex.instanceID,
             deviceID: "remote-codexbar",
@@ -469,6 +474,7 @@ struct RemoteCodexBarSnapshotTests {
             let remote = try #require(projection.fallback ?? projection.additionalAccounts.first)
             let model = try #require(controller.fleetAccountMenuCardModel(remote))
             #expect(model.subtitleText.contains("remote CodexBar"))
+            #expect(model.email == "Remote account")
         }
     }
 

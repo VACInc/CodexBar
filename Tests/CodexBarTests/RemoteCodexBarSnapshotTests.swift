@@ -122,7 +122,7 @@ struct RemoteCodexBarSnapshotTests {
             bearerToken: "new-token")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") == "https://example.com")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarBearerToken") == nil)
-        #expect(tokens.storedValues.compactMap { $0 }.map(\.bearerToken) == ["new-token"])
+        #expect(tokens.storedValues.compactMap(\.self).map(\.bearerToken) == ["new-token"])
         #expect(settings.remoteCodexBarConfiguration?.bearerToken == "new-token")
     }
 

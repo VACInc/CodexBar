@@ -416,8 +416,10 @@ struct RemoteCodexBarSnapshotTests {
         #expect(projection.snapshots.count == 2)
         #expect(Set(projection.snapshots.map(\.accountKey)).count == 2)
         #expect(Set(projection.snapshots.map(\.accountKey)) == Set([
-            AccountSnapshotSyncPayload.accountKey(for: "slot:1"),
-            AccountSnapshotSyncPayload.accountKey(for: "slot:2"),
+            AccountSnapshotSyncPayload.accountKey(
+                for: "https://server.example/dashboard/v1/snapshot|codex|slot:1"),
+            AccountSnapshotSyncPayload.accountKey(
+                for: "https://server.example/dashboard/v1/snapshot|codex|slot:2"),
         ]))
         #expect(Set(projection.snapshots.map(\.displayLabel)) == Set(["Personal", "Work"]))
     }

@@ -442,10 +442,6 @@ struct RemoteCodexBarProjection: Sendable {
                 return email
             }
         }
-        let accountID = account.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !accountID.isEmpty {
-            return accountID
-        }
         return "\(serverIdentity)|\(providerID)|\(account.id)"
     }
 

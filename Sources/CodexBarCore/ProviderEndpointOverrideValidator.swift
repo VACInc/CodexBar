@@ -175,7 +175,7 @@ public struct ProviderEndpointOverrideValidator: Sendable {
     }
 
     private static func isSharedAddressSpaceHost(_ host: String) -> Bool {
-        guard let octets = Self.ipv4Octets(host) else { return false }
+        guard let octets = ipv4Octets(host) else { return false }
         return octets[0] == 100 && (64...127).contains(octets[1])
     }
 

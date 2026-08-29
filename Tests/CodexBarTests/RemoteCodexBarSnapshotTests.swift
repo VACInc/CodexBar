@@ -192,7 +192,8 @@ struct RemoteCodexBarSnapshotTests {
         #expect(settings.remoteCodexBarBearerToken == "server-a-token")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
             "https://server-a.example.com")
-        let durableCredential = try #require(tokens.loadCredential())
+        let loadedCredential = try tokens.loadCredential()
+        let durableCredential = try #require(loadedCredential)
         #expect(durableCredential.serverURL == "https://server-a.example.com")
         #expect(durableCredential.bearerToken == "server-a-token")
 
@@ -259,7 +260,9 @@ struct RemoteCodexBarSnapshotTests {
 
         #expect(settings.remoteCodexBarBearerToken.isEmpty)
         #expect(settings.remoteCodexBarConfiguration == nil)
-        #expect(tokens.storedValues == ["server-a-token", ""])
+        #expect(tokens.storedValues.count == 2)
+        #expect(tokens.storedValues[0]?.bearerToken == "server-a-token")
+        #expect(tokens.storedValues[1] == nil)
     }
 
     @MainActor

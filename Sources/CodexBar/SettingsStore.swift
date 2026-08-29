@@ -415,7 +415,7 @@ final class SettingsStore {
             self.remoteCodexBarBearerTokenStorage = credential?.bearerToken ?? ""
             self.remoteCodexBarAllowsPlainHTTPStorage = credential?.allowsPlainHTTP ?? false
             self.remoteCodexBarSecretError = nil
-            self.remoteCodexBarTokenLoadNeedsRetry = false
+            self.remoteCodexBarTokenLoadNeedsRetry = KeychainAccessGate.isExplicitlyDisabled
             if let credential {
                 userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
             }

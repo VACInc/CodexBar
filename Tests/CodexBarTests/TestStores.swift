@@ -190,6 +190,24 @@ final class InMemoryRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unche
     }
 }
 
+final class KeychainGateAwareRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var loadAttempts = 0
+
+    init(value: RemoteCodexBarStoredCredential? = nil) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.loadAttempts += 1
+        return KeychainAccessGate.isExplicitlyDisabled ? nil : self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+    }
+}
+
 final class FailingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
     var value: RemoteCodexBarStoredCredential?
     var failWrites = false

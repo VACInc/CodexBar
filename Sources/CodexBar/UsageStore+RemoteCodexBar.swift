@@ -65,6 +65,11 @@ extension UsageStore {
             return
         } catch {
             guard self.settings.remoteCodexBarConfiguration?.configurationID == configurationID else { return }
+            if let snapshotError = error as? RemoteCodexBarSnapshotError,
+               !snapshotError.preservesLastGoodSnapshot
+            {
+                self.remoteCodexBarSnapshots = []
+            }
             // Preserve the last successful cards only for a transient failure of this exact configuration.
             self.remoteCodexBarError = error.localizedDescription
         }

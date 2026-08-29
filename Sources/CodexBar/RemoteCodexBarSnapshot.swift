@@ -54,6 +54,15 @@ enum RemoteCodexBarSnapshotError: LocalizedError, Equatable {
     case unsupportedSchema(Int)
     case invalidSnapshot
 
+    var preservesLastGoodSnapshot: Bool {
+        switch self {
+        case let .httpStatus(status):
+            status == 408 || status == 429 || (500...599).contains(status)
+        case .invalidResponse, .unauthorized, .responseTooLarge, .unsupportedSchema, .invalidSnapshot:
+            false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "Remote CodexBar returned an invalid response."

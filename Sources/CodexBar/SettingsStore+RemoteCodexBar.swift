@@ -89,6 +89,7 @@ extension SettingsStore {
 
     func retryRemoteCodexBarTokenLoadIfNeeded() {
         guard self.remoteCodexBarTokenLoadNeedsRetry else { return }
+        guard !KeychainAccessGate.isExplicitlyDisabled else { return }
         do {
             if let credential = try self.remoteCodexBarTokenStore.loadCredential() {
                 self.remoteCodexBarServerURLStorage = credential.serverURL

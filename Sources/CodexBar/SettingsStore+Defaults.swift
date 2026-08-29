@@ -75,12 +75,17 @@ extension SettingsStore {
     var debugDisableKeychainAccess: Bool {
         get { self.defaultsState.debugDisableKeychainAccess }
         set {
+            let wasDisabled = self.defaultsState.debugDisableKeychainAccess
             self.defaultsState.debugDisableKeychainAccess = newValue
             self.userDefaults.set(newValue, forKey: "debugDisableKeychainAccess")
             if Self.shouldBridgeSharedDefaults(for: self.userDefaults) {
                 Self.sharedDefaults?.set(newValue, forKey: "debugDisableKeychainAccess")
             }
             self.keychainAccessPolicy.setDisabled(newValue)
+            if wasDisabled, !newValue {
+                self.remoteCodexBarTokenLoadNeedsRetry = true
+                self.retryRemoteCodexBarTokenLoadIfNeeded()
+            }
             self.noteBackgroundWorkSettingsChanged()
         }
     }

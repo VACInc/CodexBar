@@ -333,6 +333,42 @@ struct RemoteCodexBarSnapshotTests {
 
     @MainActor
     @Test
+    func `permanent remote failure clears same-server last-good data`() async {
+        let settings = testSettingsStore(suiteName: "RemoteCodexBarSnapshotTests-permanent-failure")
+        settings.remoteCodexBarServerURL = "https://example.com"
+        settings.remoteCodexBarBearerToken = "revoked-token"
+        let unauthorizedTransport = ProviderHTTPTransportHandler { request in
+            let response = try #require(HTTPURLResponse(
+                url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil))
+            return (Data(), response)
+        }
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing,
+            remoteCodexBarClient: RemoteCodexBarSnapshotClient(transport: unauthorizedTransport))
+        store.remoteCodexBarSnapshots = [AccountSnapshotSyncPayload(
+            provider: UsageProvider.codex.instanceID,
+            deviceID: "remote-codexbar",
+            accountIdentity: "person@example.com",
+            displayLabel: "Stale remote account",
+            usage: UsageSnapshot(
+                primary: RateWindow(usedPercent: 40, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+                secondary: nil,
+                updatedAt: .now))]
+        store.remoteCodexBarSnapshotConfigurationID = settings.remoteCodexBarConfiguration?.configurationID
+
+        await store.refreshRemoteCodexBarSnapshot()
+
+        #expect(store.remoteCodexBarSnapshots.isEmpty)
+        #expect(store.remoteCodexBarError == RemoteCodexBarSnapshotError.unauthorized.localizedDescription)
+        #expect(RemoteCodexBarSnapshotError.httpStatus(503).preservesLastGoodSnapshot)
+        #expect(!RemoteCodexBarSnapshotError.unsupportedSchema(2).preservesLastGoodSnapshot)
+    }
+
+    @MainActor
+    @Test
     func `temporarily unavailable token retries without restarting the app`() {
         let tokens = RetryingRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
             serverURL: "https://saved.example.com",
@@ -348,6 +384,37 @@ struct RemoteCodexBarSnapshotTests {
         #expect(settings.remoteCodexBarServerURL == "https://saved.example.com")
         #expect(settings.remoteCodexBarBearerToken == "saved-token")
         #expect(settings.remoteCodexBarSecretError == nil)
+        #expect(tokens.loadAttempts == 2)
+    }
+
+    @MainActor
+    @Test
+    func `re-enabling Keychain access reloads the saved remote credential`() {
+        let previousOverride = KeychainAccessGate.currentOverrideForTesting
+        defer {
+            if let previousOverride {
+                KeychainAccessGate.isDisabled = previousOverride
+            } else {
+                KeychainAccessGate.resetOverrideForTesting()
+            }
+        }
+        let tokens = KeychainGateAwareRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "https://saved.example.com",
+            bearerToken: "saved-token",
+            allowsPlainHTTP: false))
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-keychain-reenabled",
+            remoteCodexBarTokenStore: tokens,
+            prepareDefaults: { $0.set(true, forKey: "debugDisableKeychainAccess") })
+        #expect(settings.remoteCodexBarBearerToken.isEmpty)
+        #expect(tokens.loadAttempts == 1)
+
+        settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        #expect(tokens.loadAttempts == 1)
+        settings.debugDisableKeychainAccess = false
+
+        #expect(settings.remoteCodexBarServerURL == "https://saved.example.com")
+        #expect(settings.remoteCodexBarBearerToken == "saved-token")
         #expect(tokens.loadAttempts == 2)
     }
 

@@ -21,8 +21,15 @@ struct RemoteCodexBarSnapshotTests {
 
         let privateHTTP = try #require(RemoteCodexBarConfiguration.resolve(
             serverURL: "http://192.168.1.20:9876",
-            bearerToken: "token"))
+            bearerToken: "token",
+            allowsPlainHTTP: true))
         #expect(privateHTTP.snapshotURL.absoluteString == "http://192.168.1.20:9876/dashboard/v1/snapshot")
+        #expect(RemoteCodexBarConfiguration.resolve(
+            serverURL: "http://192.168.1.20:9876",
+            bearerToken: "token") == nil)
+        #expect(RemoteCodexBarConfiguration.resolve(
+            serverURL: "http://127.0.0.1:9876",
+            bearerToken: "token") != nil)
 
         #expect(RemoteCodexBarConfiguration.resolve(serverURL: "http://example.com", bearerToken: "token") == nil)
         #expect(RemoteCodexBarConfiguration.resolve(
@@ -112,6 +119,33 @@ struct RemoteCodexBarSnapshotTests {
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarBearerToken") == nil)
         #expect(tokens.storedValues == ["new-token"])
         #expect(settings.remoteCodexBarConfiguration?.bearerToken == "new-token")
+    }
+
+    @MainActor
+    @Test
+    func `private HTTP requires endpoint-bound consent before connecting`() {
+        let settings = testSettingsStore(suiteName: "RemoteCodexBarSnapshotTests-private-http-consent")
+        #expect(settings.applyRemoteCodexBarConfiguration(
+            serverURL: "https://server-a.example.com",
+            bearerToken: "server-a-token"))
+
+        #expect(!settings.applyRemoteCodexBarConfiguration(
+            serverURL: "http://192.168.1.20:9876",
+            bearerToken: "token"))
+        #expect(settings.remoteCodexBarServerURL == "https://server-a.example.com")
+        #expect(settings.remoteCodexBarBearerToken == "server-a-token")
+
+        #expect(settings.applyRemoteCodexBarConfiguration(
+            serverURL: "http://192.168.1.20:9876",
+            bearerToken: "token",
+            allowsPlainHTTP: true))
+        #expect(settings.remoteCodexBarConfiguration != nil)
+        #expect(settings.remoteCodexBarAllowsPlainHTTP)
+        #expect(settings.userDefaults.bool(forKey: "remoteCodexBarAllowsPlainHTTP"))
+
+        settings.remoteCodexBarServerURL = "http://192.168.1.21:9876"
+        #expect(settings.remoteCodexBarServerURL == "http://192.168.1.20:9876")
+        #expect(settings.remoteCodexBarConfiguration != nil)
     }
 
     @MainActor

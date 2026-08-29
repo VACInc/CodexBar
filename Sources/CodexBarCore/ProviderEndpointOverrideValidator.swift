@@ -57,6 +57,13 @@ public struct ProviderEndpointOverrideValidator: Sendable {
         self.validatedURL(raw, allowingHTTPFor: Self.isPrivateNetworkHost)
     }
 
+    public func requiresExplicitPlainHTTPConsent(_ raw: String?) -> Bool {
+        guard let url = self.validatedURLAllowingPrivateNetworkHTTP(raw),
+              url.scheme?.lowercased() == "http"
+        else { return false }
+        return self.validatedURLAllowingLoopbackHTTP(raw) == nil
+    }
+
     private func validatedURL(_ raw: String?, allowingHTTPFor isAllowedHTTPHost: (String) -> Bool) -> URL? {
         guard let raw,
               Self.hasExplicitURLScheme(raw),

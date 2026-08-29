@@ -274,6 +274,7 @@ final class SettingsStore {
     var defaultsState: SettingsDefaultsState
     var remoteCodexBarServerURLStorage: String
     var remoteCodexBarBearerTokenStorage: String
+    var remoteCodexBarAllowsPlainHTTPStorage: Bool
     var remoteCodexBarSecretError: String?
     @ObservationIgnored var remoteCodexBarTokenLoadNeedsRetry: Bool
     var remoteCodexBarConfigurationRevision: Int = 0
@@ -408,6 +409,7 @@ final class SettingsStore {
             hadPreviousInstallationState: hadPreviousInstallationState)
         self.defaultsState = defaultsState
         self.remoteCodexBarServerURLStorage = userDefaults.string(forKey: "remoteCodexBarServerURL") ?? ""
+        self.remoteCodexBarAllowsPlainHTTPStorage = userDefaults.bool(forKey: "remoteCodexBarAllowsPlainHTTP")
         do {
             self.remoteCodexBarBearerTokenStorage = try remoteCodexBarTokenStore.loadToken() ?? ""
             self.remoteCodexBarSecretError = nil

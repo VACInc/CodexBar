@@ -10,11 +10,18 @@ struct RemoteCodexBarConfiguration: Equatable, Sendable {
         return "\(self.snapshotURL.absoluteString)|\(tokenFingerprint)"
     }
 
-    static func resolve(serverURL: String, bearerToken: String) -> Self? {
+    static func resolve(
+        serverURL: String,
+        bearerToken: String,
+        allowsPlainHTTP: Bool = false) -> Self?
+    {
         let token = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validator = ProviderEndpointOverrideValidator()
+        let normalizedServerURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty,
-              var components = ProviderEndpointOverrideValidator()
-                  .validatedURLAllowingPrivateNetworkHTTP(serverURL.trimmingCharacters(in: .whitespacesAndNewlines))
+              !validator.requiresExplicitPlainHTTPConsent(normalizedServerURL) || allowsPlainHTTP,
+              var components = validator
+                  .validatedURLAllowingPrivateNetworkHTTP(normalizedServerURL)
                   .flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }),
                   components.query == nil,
                   components.fragment == nil
@@ -31,6 +38,11 @@ struct RemoteCodexBarConfiguration: Equatable, Sendable {
         }
         guard let url = components.url else { return nil }
         return Self(snapshotURL: url, bearerToken: token)
+    }
+
+    static func requiresPlainHTTPConsent(serverURL: String) -> Bool {
+        ProviderEndpointOverrideValidator().requiresExplicitPlainHTTPConsent(
+            serverURL.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 

@@ -29,10 +29,25 @@ extension SettingsStore {
         }
     }
 
+    var remoteCodexBarAllowsPlainHTTP: Bool {
+        self.remoteCodexBarAllowsPlainHTTPStorage
+    }
+
     @discardableResult
-    func applyRemoteCodexBarConfiguration(serverURL: String, bearerToken: String) -> Bool {
+    func applyRemoteCodexBarConfiguration(
+        serverURL: String,
+        bearerToken: String,
+        allowsPlainHTTP: Bool = false) -> Bool
+    {
         let normalizedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedToken = bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresPlainHTTPConsent = RemoteCodexBarConfiguration.requiresPlainHTTPConsent(serverURL: normalizedURL)
+        guard !requiresPlainHTTPConsent || allowsPlainHTTP else {
+            self.remoteCodexBarSecretError =
+                "Confirm that the bearer token may be sent over unencrypted private-network HTTP."
+            return false
+        }
+        let storesPlainHTTPConsent = requiresPlainHTTPConsent && allowsPlainHTTP
 
         // Commit the credential before publishing its endpoint. If Keychain rejects the write or clear,
         // the previously matched endpoint/token pair remains active and durable.
@@ -47,7 +62,9 @@ extension SettingsStore {
         // revision after both values change makes the endpoint/token pair atomic to refresh consumers.
         self.remoteCodexBarServerURLStorage = normalizedURL
         self.remoteCodexBarBearerTokenStorage = normalizedToken
+        self.remoteCodexBarAllowsPlainHTTPStorage = storesPlainHTTPConsent
         self.userDefaults.set(normalizedURL, forKey: "remoteCodexBarServerURL")
+        self.userDefaults.set(storesPlainHTTPConsent, forKey: "remoteCodexBarAllowsPlainHTTP")
         self.remoteCodexBarTokenLoadNeedsRetry = false
         self.remoteCodexBarSecretError = nil
         self.remoteCodexBarConfigurationRevision &+= 1
@@ -71,7 +88,8 @@ extension SettingsStore {
     var remoteCodexBarConfiguration: RemoteCodexBarConfiguration? {
         RemoteCodexBarConfiguration.resolve(
             serverURL: self.remoteCodexBarServerURL,
-            bearerToken: self.remoteCodexBarBearerToken)
+            bearerToken: self.remoteCodexBarBearerToken,
+            allowsPlainHTTP: self.remoteCodexBarAllowsPlainHTTP)
     }
 
     func remoteCodexBarURLValidationMessage(for serverURL: String) -> String? {

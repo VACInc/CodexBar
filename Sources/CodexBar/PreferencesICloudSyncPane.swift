@@ -8,6 +8,7 @@ struct ICloudSyncPane: View {
     @Bindable var state: CloudSyncState
     @State private var remoteCodexBarServerURLDraft: String
     @State private var remoteCodexBarBearerTokenDraft: String
+    @State private var remoteCodexBarPlainHTTPConsentEndpoint: String?
     private static let securityFootnote =
         "Secrets use iCloud end-to-end encryption via encryptedValues. " +
         "Hooks and machine-local paths never sync."
@@ -18,6 +19,9 @@ struct ICloudSyncPane: View {
         self.state = state
         self._remoteCodexBarServerURLDraft = State(initialValue: settings.remoteCodexBarServerURL)
         self._remoteCodexBarBearerTokenDraft = State(initialValue: settings.remoteCodexBarBearerToken)
+        self._remoteCodexBarPlainHTTPConsentEndpoint = State(initialValue: settings.remoteCodexBarAllowsPlainHTTP
+            ? settings.remoteCodexBarServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil)
     }
 
     var body: some View {
@@ -64,11 +68,18 @@ struct ICloudSyncPane: View {
                     .textFieldStyle(.roundedBorder)
                 SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
                     .textFieldStyle(.roundedBorder)
+                if self.remoteCodexBarDraftRequiresPlainHTTPConsent {
+                    Toggle(
+                        "Allow this bearer token over unencrypted private-network HTTP",
+                        isOn: self.remoteCodexBarPlainHTTPConsentBinding)
+                        .toggleStyle(.checkbox)
+                }
                 HStack {
                     Button("Connect") {
                         self.settings.applyRemoteCodexBarConfiguration(
                             serverURL: self.remoteCodexBarServerURLDraft,
-                            bearerToken: self.remoteCodexBarBearerTokenDraft)
+                            bearerToken: self.remoteCodexBarBearerTokenDraft,
+                            allowsPlainHTTP: self.remoteCodexBarDraftAllowsPlainHTTP)
                     }
                     .disabled(self.remoteCodexBarDraftConfiguration == nil || !self.remoteCodexBarDraftHasChanges)
 
@@ -76,6 +87,7 @@ struct ICloudSyncPane: View {
                         if self.settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "") {
                             self.remoteCodexBarServerURLDraft = ""
                             self.remoteCodexBarBearerTokenDraft = ""
+                            self.remoteCodexBarPlainHTTPConsentEndpoint = nil
                         }
                     }
                     .disabled(self.settings.remoteCodexBarConfiguration == nil)
@@ -134,12 +146,34 @@ struct ICloudSyncPane: View {
     private var remoteCodexBarDraftConfiguration: RemoteCodexBarConfiguration? {
         RemoteCodexBarConfiguration.resolve(
             serverURL: self.remoteCodexBarServerURLDraft,
-            bearerToken: self.remoteCodexBarBearerTokenDraft)
+            bearerToken: self.remoteCodexBarBearerTokenDraft,
+            allowsPlainHTTP: self.remoteCodexBarDraftAllowsPlainHTTP)
     }
 
     private var remoteCodexBarDraftHasChanges: Bool {
         self.remoteCodexBarServerURLDraft != self.settings.remoteCodexBarServerURL ||
-            self.remoteCodexBarBearerTokenDraft != self.settings.remoteCodexBarBearerToken
+            self.remoteCodexBarBearerTokenDraft != self.settings.remoteCodexBarBearerToken ||
+            self.remoteCodexBarDraftAllowsPlainHTTP != self.settings.remoteCodexBarAllowsPlainHTTP
+    }
+
+    private var remoteCodexBarDraftRequiresPlainHTTPConsent: Bool {
+        RemoteCodexBarConfiguration.requiresPlainHTTPConsent(serverURL: self.remoteCodexBarServerURLDraft)
+    }
+
+    private var remoteCodexBarDraftAllowsPlainHTTP: Bool {
+        self.remoteCodexBarDraftRequiresPlainHTTPConsent &&
+            self.remoteCodexBarPlainHTTPConsentEndpoint ==
+            self.remoteCodexBarServerURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var remoteCodexBarPlainHTTPConsentBinding: Binding<Bool> {
+        Binding(
+            get: { self.remoteCodexBarDraftAllowsPlainHTTP },
+            set: { isAllowed in
+                self.remoteCodexBarPlainHTTPConsentEndpoint = isAllowed
+                    ? self.remoteCodexBarServerURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : nil
+            })
     }
 
     private var syncCanRun: Bool {

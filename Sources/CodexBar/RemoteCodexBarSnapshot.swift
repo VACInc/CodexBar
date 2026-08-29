@@ -223,9 +223,9 @@ final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport,
     private static func normalizedPort(_ url: URL) -> Int? {
         if let port = url.port { return port }
         switch url.scheme?.lowercased() {
-        case "http": 80
-        case "https": 443
-        default: nil
+        case "http": return 80
+        case "https": return 443
+        default: return nil
         }
     }
 }

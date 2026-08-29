@@ -17,16 +17,22 @@ extension StatusItemController {
     }
 
     func fleetAccountProjection(for provider: UsageProvider) -> FleetAccountMenuProjection {
-        guard self.settings.iCloudSyncEnabled,
-              self.settings.iCloudSyncSnapshotsEnabled,
-              self.settings.iCloudSyncShowFleetAccounts
-        else {
+        let iCloudSnapshots: [AccountSnapshotSyncPayload] = if self.settings.iCloudSyncEnabled,
+                                                               self.settings.iCloudSyncSnapshotsEnabled,
+                                                               self.settings.iCloudSyncShowFleetAccounts
+        {
+            Array(self.cloudSyncState.fleetSnapshots.values)
+        } else {
+            []
+        }
+        let remoteSnapshots = self.store.remoteCodexBarSnapshots
+        guard !iCloudSnapshots.isEmpty || !remoteSnapshots.isEmpty else {
             return FleetAccountMenuProjection(fallback: nil, additionalAccounts: [])
         }
         let localSnapshots = self.store.cloudSyncAccountSnapshots()
         return FleetAccountMenuPlanner.projection(
             provider: provider,
-            snapshots: self.cloudSyncState.fleetSnapshots.values,
+            snapshots: iCloudSnapshots + remoteSnapshots,
             currentDeviceID: self.settings.iCloudSyncDeviceID,
             localAccountKeys: self.store.cloudSyncLocalAccountKeys(for: provider),
             hasLocalUsage: localSnapshots.contains(where: { $0.provider == provider.instanceID }))
@@ -76,9 +82,13 @@ extension StatusItemController {
         _ snapshot: AccountSnapshotSyncPayload) -> UsageMenuCardView.Model?
     {
         guard let provider = snapshot.provider.firstPartyProvider else { return nil }
-        let deviceName = self.cloudSyncState.fleetDevices.values
-            .first(where: { $0.deviceID == snapshot.deviceID })?
-            .hostName ?? L("another Mac")
+        let deviceName = if snapshot.deviceID == "remote-codexbar" {
+            L("remote CodexBar")
+        } else {
+            self.cloudSyncState.fleetDevices.values
+                .first(where: { $0.deviceID == snapshot.deviceID })?
+                .hostName ?? L("another Mac")
+        }
         let badge = FleetAccountMenuPlanner.badge(deviceName: deviceName, fetchedAt: snapshot.fetchedAt)
         let label = snapshot.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         return self.menuCardModel(

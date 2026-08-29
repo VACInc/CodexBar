@@ -19,7 +19,7 @@ enum ProviderEndpointOverrideError: LocalizedError, Equatable {
     }
 }
 
-struct ProviderEndpointOverrideValidator {
+public struct ProviderEndpointOverrideValidator: Sendable {
     enum HostPolicy {
         case allowAnyHTTPSHost
         case providerOwnedOnly
@@ -28,7 +28,7 @@ struct ProviderEndpointOverrideValidator {
     private let allowedHosts: Set<String>
     private let allowedDomainSuffixes: Set<String>
 
-    init(allowedHosts: [String] = [], allowedDomainSuffixes: [String] = []) {
+    public init(allowedHosts: [String] = [], allowedDomainSuffixes: [String] = []) {
         self.allowedHosts = Set(allowedHosts.map { $0.lowercased() })
         self.allowedDomainSuffixes = Set(allowedDomainSuffixes.map { $0.lowercased() })
     }
@@ -53,7 +53,7 @@ struct ProviderEndpointOverrideValidator {
         self.validatedURL(raw, allowingHTTPFor: Self.isLoopbackHost)
     }
 
-    func validatedURLAllowingPrivateNetworkHTTP(_ raw: String?) -> URL? {
+    public func validatedURLAllowingPrivateNetworkHTTP(_ raw: String?) -> URL? {
         self.validatedURL(raw, allowingHTTPFor: Self.isPrivateNetworkHost)
     }
 

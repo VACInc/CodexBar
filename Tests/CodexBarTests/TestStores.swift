@@ -172,6 +172,45 @@ final class InMemoryCopilotTokenStore: CopilotTokenStoring, @unchecked Sendable 
     }
 }
 
+final class InMemoryRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: String?
+    var storedValues: [String?] = []
+
+    init(value: String? = nil) {
+        self.value = value
+    }
+
+    func loadToken() throws -> String? {
+        self.value
+    }
+
+    func storeToken(_ token: String?) throws {
+        self.value = token
+        self.storedValues.append(token)
+    }
+}
+
+final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: String?
+    var loadAttempts = 0
+
+    init(value: String?) {
+        self.value = value
+    }
+
+    func loadToken() throws -> String? {
+        self.loadAttempts += 1
+        if self.loadAttempts == 1 {
+            throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
+        }
+        return self.value
+    }
+
+    func storeToken(_ token: String?) throws {
+        self.value = token
+    }
+}
+
 final class InMemoryTokenAccountStore: ProviderTokenAccountStoring, @unchecked Sendable {
     var accounts: [UsageProvider: ProviderTokenAccountData] = [:]
     private let fileURL: URL
@@ -223,6 +262,7 @@ func testConfigWithAllProvidersDisabled() -> CodexBarConfig {
 func testSettingsStore(
     suiteName: String,
     tokenAccountStore: any ProviderTokenAccountStoring = InMemoryTokenAccountStore(),
+    remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring = InMemoryRemoteCodexBarTokenStore(),
     config: CodexBarConfig? = nil,
     prepareDefaults: ((UserDefaults) -> Void)? = nil) -> SettingsStore
 {
@@ -256,6 +296,7 @@ func testSettingsStore(
         augmentCookieStore: InMemoryCookieHeaderStore(),
         ampCookieStore: InMemoryCookieHeaderStore(),
         copilotTokenStore: InMemoryCopilotTokenStore(),
+        remoteCodexBarTokenStore: remoteCodexBarTokenStore,
         tokenAccountStore: tokenAccountStore)
 }
 

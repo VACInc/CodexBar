@@ -7,6 +7,15 @@ struct AdvancedPane: View {
     @Bindable var store: UsageStore
     @State private var isInstallingCLI = false
     @State private var cliStatus: String?
+    @State private var remoteCodexBarServerURLDraft: String
+    @State private var remoteCodexBarBearerTokenDraft: String
+
+    init(settings: SettingsStore, store: UsageStore) {
+        self.settings = settings
+        self.store = store
+        self._remoteCodexBarServerURLDraft = State(initialValue: settings.remoteCodexBarServerURL)
+        self._remoteCodexBarBearerTokenDraft = State(initialValue: settings.remoteCodexBarBearerToken)
+    }
 
     var body: some View {
         Form {
@@ -30,6 +39,41 @@ struct AdvancedPane: View {
             } footer: {
                 if let status = self.cliStatus {
                     SettingsSectionFooter(status)
+                }
+            }
+
+            Section {
+                TextField("https://codexbar.example", text: self.$remoteCodexBarServerURLDraft)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Connect") {
+                        self.settings.applyRemoteCodexBarConfiguration(
+                            serverURL: self.remoteCodexBarServerURLDraft,
+                            bearerToken: self.remoteCodexBarBearerTokenDraft)
+                    }
+                    .disabled(self.remoteCodexBarDraftConfiguration == nil || !self.remoteCodexBarDraftHasChanges)
+
+                    Button("Disconnect", role: .destructive) {
+                        self.settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "")
+                        self.remoteCodexBarServerURLDraft = ""
+                        self.remoteCodexBarBearerTokenDraft = ""
+                    }
+                    .disabled(self.settings.remoteCodexBarConfiguration == nil)
+                }
+            } header: {
+                Text("Remote CodexBar")
+            } footer: {
+                if let message = self.settings.remoteCodexBarURLValidationMessage(
+                    for: self.remoteCodexBarServerURLDraft) ??
+                    self.settings.remoteCodexBarSecretError ??
+                    self.store.remoteCodexBarError
+                {
+                    SettingsSectionFooter(message)
+                } else {
+                    SettingsSectionFooter(
+                        "Connects to a separately running codexbar serve and shows its provider snapshots in menus.")
                 }
             }
 
@@ -72,6 +116,17 @@ struct AdvancedPane: View {
 }
 
 extension AdvancedPane {
+    private var remoteCodexBarDraftConfiguration: RemoteCodexBarConfiguration? {
+        RemoteCodexBarConfiguration.resolve(
+            serverURL: self.remoteCodexBarServerURLDraft,
+            bearerToken: self.remoteCodexBarBearerTokenDraft)
+    }
+
+    private var remoteCodexBarDraftHasChanges: Bool {
+        self.remoteCodexBarServerURLDraft != self.settings.remoteCodexBarServerURL ||
+            self.remoteCodexBarBearerTokenDraft != self.settings.remoteCodexBarBearerToken
+    }
+
     private func installCLI() async {
         if self.isInstallingCLI {
             return

@@ -254,6 +254,7 @@ final class SettingsStore {
     @ObservationIgnored let configStore: CodexBarConfigStore
     @ObservationIgnored let antigravityOAuthCredentialsStore: AntigravityOAuthCredentialsStore
     @ObservationIgnored let keychainAccessPolicy: SettingsStoreKeychainAccessPolicy
+    @ObservationIgnored let remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring
     @ObservationIgnored var config: CodexBarConfig
     @ObservationIgnored var configPersistTask: Task<Void, Never>?
     @ObservationIgnored var configFileWatcher: ConfigFileWatcher?
@@ -271,6 +272,11 @@ final class SettingsStore {
     @ObservationIgnored var selectedMenuProviderRawStorage: String?
     @ObservationIgnored private nonisolated(unsafe) var lowPowerModeObserver: NSObjectProtocol?
     var defaultsState: SettingsDefaultsState
+    var remoteCodexBarServerURLStorage: String
+    var remoteCodexBarBearerTokenStorage: String
+    var remoteCodexBarSecretError: String?
+    @ObservationIgnored var remoteCodexBarTokenLoadNeedsRetry: Bool
+    var remoteCodexBarConfigurationRevision: Int = 0
     var configRevision: Int = 0
     var providerDetailSettingsRevision: Int = 0
     var backgroundWorkSettingsRevision: Int = 0
@@ -333,6 +339,7 @@ final class SettingsStore {
             account: "amp-cookie",
             promptKind: .ampCookie),
         copilotTokenStore: any CopilotTokenStoring = KeychainCopilotTokenStore(),
+        remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring = KeychainRemoteCodexBarTokenStore(),
         tokenAccountStore: any ProviderTokenAccountStoring = FileTokenAccountStore(),
         antigravityOAuthCredentialsStore: AntigravityOAuthCredentialsStore = AntigravityOAuthCredentialsStore(),
         keychainAccessPolicy: SettingsStoreKeychainAccessPolicy = .live,
@@ -393,12 +400,24 @@ final class SettingsStore {
         self.configStore = configStore
         self.antigravityOAuthCredentialsStore = antigravityOAuthCredentialsStore
         self.keychainAccessPolicy = keychainAccessPolicy
+        self.remoteCodexBarTokenStore = remoteCodexBarTokenStore
         self.config = config
         self.configLoading = true
         let defaultsState = Self.loadDefaultsState(
             userDefaults: userDefaults,
             hadPreviousInstallationState: hadPreviousInstallationState)
         self.defaultsState = defaultsState
+        self.remoteCodexBarServerURLStorage = userDefaults.string(forKey: "remoteCodexBarServerURL") ?? ""
+        do {
+            self.remoteCodexBarBearerTokenStorage = try remoteCodexBarTokenStore.loadToken() ?? ""
+            self.remoteCodexBarSecretError = nil
+            self.remoteCodexBarTokenLoadNeedsRetry = false
+        } catch {
+            self.remoteCodexBarBearerTokenStorage = ""
+            self.remoteCodexBarSecretError = error.localizedDescription
+            self.remoteCodexBarTokenLoadNeedsRetry =
+                error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable
+        }
         self.mergedMenuLastSelectedWasOverviewStorage = defaultsState.mergedMenuLastSelectedWasOverview
         self.selectedMenuProviderRawStorage = defaultsState.selectedMenuProviderRaw
         self.updateProviderState(config: config)

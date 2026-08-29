@@ -27,6 +27,18 @@ struct RemoteCodexBarSnapshotTests {
         #expect(RemoteCodexBarConfiguration.resolve(
             serverURL: "http://192.168.1.20:9876",
             bearerToken: "token") == nil)
+
+        let tailscaleHTTP = try #require(RemoteCodexBarConfiguration.resolve(
+            serverURL: "http://100.100.10.20:9876",
+            bearerToken: "token",
+            allowsPlainHTTP: true))
+        #expect(tailscaleHTTP.snapshotURL.absoluteString == "http://100.100.10.20:9876/dashboard/v1/snapshot")
+        #expect(RemoteCodexBarConfiguration.requiresPlainHTTPConsent(
+            serverURL: "http://100.100.10.20:9876"))
+        #expect(RemoteCodexBarConfiguration.resolve(
+            serverURL: "http://100.100.10.20:9876",
+            bearerToken: "token") == nil)
+
         #expect(RemoteCodexBarConfiguration.resolve(
             serverURL: "http://127.0.0.1:9876",
             bearerToken: "token") != nil)

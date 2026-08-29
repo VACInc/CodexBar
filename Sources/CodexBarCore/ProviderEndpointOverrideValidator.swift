@@ -147,6 +147,7 @@ public struct ProviderEndpointOverrideValidator: Sendable {
 
         if let octets = Self.ipv4Octets(host) {
             return octets[0] == 10 ||
+                (octets[0] == 100 && (64...127).contains(octets[1])) ||
                 (octets[0] == 172 && (16...31).contains(octets[1])) ||
                 (octets[0] == 192 && octets[1] == 168) ||
                 (octets[0] == 169 && octets[1] == 254)

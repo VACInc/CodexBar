@@ -375,7 +375,7 @@ struct RemoteCodexBarProjection: Sendable {
                 projected.append(AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
                     deviceID: "remote-codexbar",
-                    accountIdentity: account.identity?.accountEmail ?? account.id,
+                    accountIdentity: "\(serverIdentity)|\(row.id)|\(account.id)",
                     displayLabel: account.label,
                     usage: usage))
             }

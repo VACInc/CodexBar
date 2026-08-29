@@ -1,9 +1,15 @@
 import CodexBarCore
 import Foundation
 
+struct RemoteCodexBarStoredCredential: Codable, Equatable, Sendable {
+    let serverURL: String
+    let bearerToken: String
+    let allowsPlainHTTP: Bool
+}
+
 protocol RemoteCodexBarTokenStoring: Sendable {
-    func loadToken() throws -> String?
-    func storeToken(_ token: String?) throws
+    func loadCredential() throws -> RemoteCodexBarStoredCredential?
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws
 }
 
 struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
@@ -11,11 +17,15 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
         category: "remote-codexbar-secret",
         identifier: "dashboard-bearer-token")
 
-    func loadToken() throws -> String? {
-        switch KeychainCacheStore.load(key: Self.key, as: String.self) {
-        case let .found(token):
-            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        switch KeychainCacheStore.load(key: Self.key, as: RemoteCodexBarStoredCredential.self) {
+        case let .found(credential):
+            let token = credential.bearerToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else { return nil }
+            return RemoteCodexBarStoredCredential(
+                serverURL: credential.serverURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                bearerToken: token,
+                allowsPlainHTTP: credential.allowsPlainHTTP)
         case .missing:
             return nil
         case .temporarilyUnavailable:
@@ -25,10 +35,9 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
         }
     }
 
-    func storeToken(_ token: String?) throws {
-        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmed, !trimmed.isEmpty {
-            guard KeychainCacheStore.storeResult(key: Self.key, entry: trimmed) else {
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        if let credential {
+            guard KeychainCacheStore.storeResult(key: Self.key, entry: credential) else {
                 throw RemoteCodexBarTokenStoreError.writeFailed
             }
         } else {

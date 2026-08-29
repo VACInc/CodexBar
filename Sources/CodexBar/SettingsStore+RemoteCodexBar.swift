@@ -15,8 +15,16 @@ extension SettingsStore {
         get { self.remoteCodexBarBearerTokenStorage }
         set {
             let normalizedToken = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let credential = self.remoteCodexBarStoredCredential(
+                serverURL: self.remoteCodexBarServerURLStorage,
+                bearerToken: normalizedToken,
+                allowsPlainHTTP: self.remoteCodexBarAllowsPlainHTTPStorage)
+            guard normalizedToken.isEmpty || credential != nil else {
+                self.remoteCodexBarSecretError = "Save a valid server URL before saving its bearer token."
+                return
+            }
             do {
-                try self.remoteCodexBarTokenStore.storeToken(normalizedToken)
+                try self.remoteCodexBarTokenStore.storeCredential(credential)
                 self.remoteCodexBarBearerTokenStorage = normalizedToken
                 self.remoteCodexBarTokenLoadNeedsRetry = false
                 self.remoteCodexBarSecretError = nil
@@ -48,11 +56,19 @@ extension SettingsStore {
             return false
         }
         let storesPlainHTTPConsent = requiresPlainHTTPConsent && allowsPlainHTTP
+        let credential = self.remoteCodexBarStoredCredential(
+            serverURL: normalizedURL,
+            bearerToken: normalizedToken,
+            allowsPlainHTTP: storesPlainHTTPConsent)
+        guard normalizedToken.isEmpty || credential != nil else {
+            self.remoteCodexBarSecretError = "Save a valid server URL and bearer token together."
+            return false
+        }
 
-        // Commit the credential before publishing its endpoint. If Keychain rejects the write or clear,
-        // the previously matched endpoint/token pair remains active and durable.
+        // The Keychain record binds the endpoint and token in one durable write. UserDefaults keeps only
+        // a display draft, so an interruption can never recombine authority from two different servers.
         do {
-            try self.remoteCodexBarTokenStore.storeToken(normalizedToken)
+            try self.remoteCodexBarTokenStore.storeCredential(credential)
         } catch {
             self.remoteCodexBarSecretError = error.localizedDescription
             return false
@@ -64,7 +80,6 @@ extension SettingsStore {
         self.remoteCodexBarBearerTokenStorage = normalizedToken
         self.remoteCodexBarAllowsPlainHTTPStorage = storesPlainHTTPConsent
         self.userDefaults.set(normalizedURL, forKey: "remoteCodexBarServerURL")
-        self.userDefaults.set(storesPlainHTTPConsent, forKey: "remoteCodexBarAllowsPlainHTTP")
         self.remoteCodexBarTokenLoadNeedsRetry = false
         self.remoteCodexBarSecretError = nil
         self.remoteCodexBarConfigurationRevision &+= 1
@@ -75,9 +90,19 @@ extension SettingsStore {
     func retryRemoteCodexBarTokenLoadIfNeeded() {
         guard self.remoteCodexBarTokenLoadNeedsRetry else { return }
         do {
-            self.remoteCodexBarBearerTokenStorage = try self.remoteCodexBarTokenStore.loadToken() ?? ""
+            if let credential = try self.remoteCodexBarTokenStore.loadCredential() {
+                self.remoteCodexBarServerURLStorage = credential.serverURL
+                self.remoteCodexBarBearerTokenStorage = credential.bearerToken
+                self.remoteCodexBarAllowsPlainHTTPStorage = credential.allowsPlainHTTP
+                self.userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
+            } else {
+                self.remoteCodexBarBearerTokenStorage = ""
+                self.remoteCodexBarAllowsPlainHTTPStorage = false
+            }
             self.remoteCodexBarSecretError = nil
             self.remoteCodexBarTokenLoadNeedsRetry = false
+            self.remoteCodexBarConfigurationRevision &+= 1
+            self.noteBackgroundWorkSettingsChanged()
         } catch {
             self.remoteCodexBarSecretError = error.localizedDescription
             self.remoteCodexBarTokenLoadNeedsRetry =
@@ -102,5 +127,21 @@ extension SettingsStore {
             return "The server URL cannot include a query or fragment."
         }
         return nil
+    }
+
+    private func remoteCodexBarStoredCredential(
+        serverURL: String,
+        bearerToken: String,
+        allowsPlainHTTP: Bool) -> RemoteCodexBarStoredCredential?
+    {
+        guard RemoteCodexBarConfiguration.resolve(
+            serverURL: serverURL,
+            bearerToken: bearerToken,
+            allowsPlainHTTP: allowsPlainHTTP) != nil
+        else { return nil }
+        return RemoteCodexBarStoredCredential(
+            serverURL: serverURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            bearerToken: bearerToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            allowsPlainHTTP: allowsPlainHTTP)
     }
 }

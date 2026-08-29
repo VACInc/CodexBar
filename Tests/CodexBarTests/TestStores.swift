@@ -173,50 +173,50 @@ final class InMemoryCopilotTokenStore: CopilotTokenStoring, @unchecked Sendable 
 }
 
 final class InMemoryRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
-    var value: String?
-    var storedValues: [String?] = []
+    var value: RemoteCodexBarStoredCredential?
+    var storedValues: [RemoteCodexBarStoredCredential?] = []
 
-    init(value: String? = nil) {
+    init(value: RemoteCodexBarStoredCredential? = nil) {
         self.value = value
     }
 
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
         self.value
     }
 
-    func storeToken(_ token: String?) throws {
-        self.value = token
-        self.storedValues.append(token)
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+        self.storedValues.append(credential)
     }
 }
 
 final class FailingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
-    var value: String?
+    var value: RemoteCodexBarStoredCredential?
     var failWrites = false
 
-    init(value: String? = nil) {
+    init(value: RemoteCodexBarStoredCredential? = nil) {
         self.value = value
     }
 
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
         self.value
     }
 
-    func storeToken(_ token: String?) throws {
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
         guard !self.failWrites else { throw RemoteCodexBarTokenStoreError.writeFailed }
-        self.value = token
+        self.value = credential
     }
 }
 
 final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
-    var value: String?
+    var value: RemoteCodexBarStoredCredential?
     var loadAttempts = 0
 
-    init(value: String?) {
+    init(value: RemoteCodexBarStoredCredential?) {
         self.value = value
     }
 
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
         self.loadAttempts += 1
         if self.loadAttempts == 1 {
             throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
@@ -224,8 +224,8 @@ final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unche
         return self.value
     }
 
-    func storeToken(_ token: String?) throws {
-        self.value = token
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
     }
 }
 

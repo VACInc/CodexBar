@@ -408,14 +408,21 @@ final class SettingsStore {
             userDefaults: userDefaults,
             hadPreviousInstallationState: hadPreviousInstallationState)
         self.defaultsState = defaultsState
-        self.remoteCodexBarServerURLStorage = userDefaults.string(forKey: "remoteCodexBarServerURL") ?? ""
-        self.remoteCodexBarAllowsPlainHTTPStorage = userDefaults.bool(forKey: "remoteCodexBarAllowsPlainHTTP")
+        let remoteCodexBarServerURLDraft = userDefaults.string(forKey: "remoteCodexBarServerURL") ?? ""
         do {
-            self.remoteCodexBarBearerTokenStorage = try remoteCodexBarTokenStore.loadToken() ?? ""
+            let credential = try remoteCodexBarTokenStore.loadCredential()
+            self.remoteCodexBarServerURLStorage = credential?.serverURL ?? remoteCodexBarServerURLDraft
+            self.remoteCodexBarBearerTokenStorage = credential?.bearerToken ?? ""
+            self.remoteCodexBarAllowsPlainHTTPStorage = credential?.allowsPlainHTTP ?? false
             self.remoteCodexBarSecretError = nil
             self.remoteCodexBarTokenLoadNeedsRetry = false
+            if let credential {
+                userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
+            }
         } catch {
+            self.remoteCodexBarServerURLStorage = remoteCodexBarServerURLDraft
             self.remoteCodexBarBearerTokenStorage = ""
+            self.remoteCodexBarAllowsPlainHTTPStorage = false
             self.remoteCodexBarSecretError = error.localizedDescription
             self.remoteCodexBarTokenLoadNeedsRetry =
                 error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable

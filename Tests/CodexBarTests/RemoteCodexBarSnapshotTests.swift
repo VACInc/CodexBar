@@ -67,7 +67,8 @@ struct RemoteCodexBarSnapshotTests {
         #expect(provider.provider == UsageProvider.codex.instanceID)
         #expect(provider.accountKey == AccountSnapshotSyncPayload.accountKey(for: "person@example.com"))
         #expect(projection.snapshots[1].accountKey ==
-            AccountSnapshotSyncPayload.accountKey(for: "work@example.com"))
+            AccountSnapshotSyncPayload.accountKey(
+                for: "https://example.com/dashboard/v1/snapshot|codex|slot:1"))
         #expect(provider.displayLabel == "person@example.com")
         #expect(provider.usage.primary?.usedPercent == 25)
         #expect(provider.usage.secondary?.usedPercent == 60)
@@ -106,10 +107,14 @@ struct RemoteCodexBarSnapshotTests {
     @MainActor
     @Test
     func `settings persist URL and keep bearer token in secure store`() {
-        let tokens = InMemoryRemoteCodexBarTokenStore(value: "saved-token")
+        let tokens = InMemoryRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "https://saved.example.com",
+            bearerToken: "saved-token",
+            allowsPlainHTTP: false))
         let settings = testSettingsStore(
             suiteName: "RemoteCodexBarSnapshotTests-settings",
             remoteCodexBarTokenStore: tokens)
+        #expect(settings.remoteCodexBarServerURL == "https://saved.example.com")
         #expect(settings.remoteCodexBarBearerToken == "saved-token")
 
         settings.applyRemoteCodexBarConfiguration(
@@ -117,8 +122,29 @@ struct RemoteCodexBarSnapshotTests {
             bearerToken: "new-token")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") == "https://example.com")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarBearerToken") == nil)
-        #expect(tokens.storedValues == ["new-token"])
+        #expect(tokens.storedValues.compactMap { $0 }.map(\.bearerToken) == ["new-token"])
         #expect(settings.remoteCodexBarConfiguration?.bearerToken == "new-token")
+    }
+
+    @MainActor
+    @Test
+    func `startup trusts the endpoint bound to the Keychain credential`() {
+        let tokens = InMemoryRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "https://server-b.example.com",
+            bearerToken: "server-b-token",
+            allowsPlainHTTP: false))
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-interrupted-replacement",
+            remoteCodexBarTokenStore: tokens,
+            prepareDefaults: { defaults in
+                defaults.set("https://server-a.example.com", forKey: "remoteCodexBarServerURL")
+            })
+
+        #expect(settings.remoteCodexBarServerURL == "https://server-b.example.com")
+        #expect(settings.remoteCodexBarBearerToken == "server-b-token")
+        #expect(settings.remoteCodexBarConfiguration?.snapshotURL.host == "server-b.example.com")
+        #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
+            "https://server-b.example.com")
     }
 
     @MainActor
@@ -141,7 +167,6 @@ struct RemoteCodexBarSnapshotTests {
             allowsPlainHTTP: true))
         #expect(settings.remoteCodexBarConfiguration != nil)
         #expect(settings.remoteCodexBarAllowsPlainHTTP)
-        #expect(settings.userDefaults.bool(forKey: "remoteCodexBarAllowsPlainHTTP"))
 
         settings.remoteCodexBarServerURL = "http://192.168.1.21:9876"
         #expect(settings.remoteCodexBarServerURL == "http://192.168.1.20:9876")
@@ -167,11 +192,14 @@ struct RemoteCodexBarSnapshotTests {
         #expect(settings.remoteCodexBarBearerToken == "server-a-token")
         #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
             "https://server-a.example.com")
-        #expect(try tokens.loadToken() == "server-a-token")
+        let durableCredential = try #require(tokens.loadCredential())
+        #expect(durableCredential.serverURL == "https://server-a.example.com")
+        #expect(durableCredential.bearerToken == "server-a-token")
 
         let persisted = try #require(RemoteCodexBarConfiguration.resolve(
-            serverURL: settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ?? "",
-            bearerToken: tokens.loadToken() ?? ""))
+            serverURL: durableCredential.serverURL,
+            bearerToken: durableCredential.bearerToken,
+            allowsPlainHTTP: durableCredential.allowsPlainHTTP))
         let requests = LockIsolated<[URLRequest]>([])
         let transport = ProviderHTTPTransportHandler { request in
             requests.setValue(requests.value + [request])
@@ -281,7 +309,10 @@ struct RemoteCodexBarSnapshotTests {
     @MainActor
     @Test
     func `temporarily unavailable token retries without restarting the app`() {
-        let tokens = RetryingRemoteCodexBarTokenStore(value: "saved-token")
+        let tokens = RetryingRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "https://saved.example.com",
+            bearerToken: "saved-token",
+            allowsPlainHTTP: false))
         let settings = testSettingsStore(
             suiteName: "RemoteCodexBarSnapshotTests-token-retry",
             remoteCodexBarTokenStore: tokens)
@@ -289,6 +320,7 @@ struct RemoteCodexBarSnapshotTests {
         #expect(settings.remoteCodexBarSecretError != nil)
 
         settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        #expect(settings.remoteCodexBarServerURL == "https://saved.example.com")
         #expect(settings.remoteCodexBarBearerToken == "saved-token")
         #expect(settings.remoteCodexBarSecretError == nil)
         #expect(tokens.loadAttempts == 2)
@@ -348,6 +380,19 @@ struct RemoteCodexBarSnapshotTests {
         }
     }
 
+    @Test
+    func `redacted accounts use stable server scoped ids`() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(RemoteCodexBarSnapshot.self, from: Data(Self.redactedAccountsJSON.utf8))
+        let serverURL = try #require(URL(string: "https://server.example/dashboard/v1/snapshot"))
+
+        let projection = RemoteCodexBarProjection.make(snapshot: snapshot, serverURL: serverURL)
+        #expect(projection.snapshots.count == 2)
+        #expect(Set(projection.snapshots.map(\.accountKey)).count == 2)
+        #expect(Set(projection.snapshots.map(\.displayLabel)) == Set(["Personal", "Work"]))
+    }
+
     private static let snapshotJSON = """
     {
       "schemaVersion": 1,
@@ -383,6 +428,38 @@ struct RemoteCodexBarSnapshotTests {
           "error": null,
           "updatedAt": "2026-08-28T19:59:00Z"
         }]
+      }]
+    }
+    """
+
+    private static let redactedAccountsJSON = """
+    {
+      "schemaVersion": 1,
+      "generatedAt": "2026-08-28T20:00:00Z",
+      "staleAfterSeconds": 180,
+      "providers": [{
+        "id": "codex",
+        "name": "Codex",
+        "enabled": true,
+        "windows": [],
+        "accounts": [
+          {
+            "id": "slot:1",
+            "label": "Personal",
+            "active": true,
+            "identity": {"accountEmail": "redacted@example.com", "plan": null},
+            "windows": [{"kind": "session", "label": "Session", "usedPercent": 15,
+                         "remainingPercent": 85, "resetAt": null}]
+          },
+          {
+            "id": "slot:2",
+            "label": "Work",
+            "active": false,
+            "identity": {"accountEmail": "redacted@example.com", "plan": null},
+            "windows": [{"kind": "session", "label": "Session", "usedPercent": 35,
+                         "remainingPercent": 65, "resetAt": null}]
+          }
+        ]
       }]
     }
     """

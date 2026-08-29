@@ -137,7 +137,7 @@ struct RemoteCodexBarSnapshotTests {
 
         let persisted = try #require(RemoteCodexBarConfiguration.resolve(
             serverURL: settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ?? "",
-            bearerToken: try tokens.loadToken() ?? ""))
+            bearerToken: tokens.loadToken() ?? ""))
         let requests = LockIsolated<[URLRequest]>([])
         let transport = ProviderHTTPTransportHandler { request in
             requests.setValue(requests.value + [request])

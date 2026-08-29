@@ -183,12 +183,14 @@ final class RemoteCodexBarBoundedHTTPTransport: NSObject, ProviderHTTPTransport,
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let task = self.session.dataTask(with: request)
-                guard cancellation.install(task) else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
                 self.lock.withLock {
                     self.states[task.taskIdentifier] = RequestState(continuation: continuation)
+                }
+                guard cancellation.install(task) else {
+                    self.finish(
+                        taskIdentifier: task.taskIdentifier,
+                        result: .failure(CancellationError()))
+                    return
                 }
                 task.resume()
             }

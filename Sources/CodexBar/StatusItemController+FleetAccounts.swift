@@ -25,7 +25,14 @@ extension StatusItemController {
         } else {
             []
         }
-        let remoteSnapshots = self.store.remoteCodexBarSnapshots
+        let remoteSnapshots: [AccountSnapshotSyncPayload] = if let activeConfigurationID = self.settings
+            .remoteCodexBarConfiguration?.configurationID,
+            self.store.remoteCodexBarSnapshotConfigurationID == activeConfigurationID
+        {
+            self.store.remoteCodexBarSnapshots
+        } else {
+            []
+        }
         guard !iCloudSnapshots.isEmpty || !remoteSnapshots.isEmpty else {
             return FleetAccountMenuProjection(fallback: nil, additionalAccounts: [])
         }

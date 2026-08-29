@@ -265,6 +265,12 @@ struct RemoteCodexBarSnapshotTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(RemoteCodexBarCancellableURLProtocol.cancelCount == 1)
+
+        let cancelledBeforeStart = Task { try await transport.data(for: request) }
+        cancelledBeforeStart.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await cancelledBeforeStart.value
+        }
     }
 
     @MainActor
@@ -447,6 +453,8 @@ struct RemoteCodexBarSnapshotTests {
     @Test
     func `remote projection enters the existing fleet card display seam`() throws {
         let settings = testSettingsStore(suiteName: "RemoteCodexBarSnapshotTests-display")
+        settings.remoteCodexBarServerURL = "https://example.com"
+        settings.remoteCodexBarBearerToken = "token"
         let fetcher = UsageFetcher()
         let store = UsageStore(
             fetcher: fetcher,
@@ -468,6 +476,7 @@ struct RemoteCodexBarSnapshotTests {
             accountIdentity: "remote|codex|default",
             displayLabel: "Remote account",
             usage: usage)]
+        store.remoteCodexBarSnapshotConfigurationID = settings.remoteCodexBarConfiguration?.configurationID
 
         try withStatusItemControllerForTesting(store: store, settings: settings, fetcher: fetcher) { controller in
             let projection = controller.fleetAccountProjection(for: .codex)
@@ -475,6 +484,11 @@ struct RemoteCodexBarSnapshotTests {
             let model = try #require(controller.fleetAccountMenuCardModel(remote))
             #expect(model.subtitleText.contains("remote CodexBar"))
             #expect(model.email == "Remote account")
+
+            #expect(settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: ""))
+            let disconnected = controller.fleetAccountProjection(for: .codex)
+            #expect(disconnected.fallback == nil)
+            #expect(disconnected.additionalAccounts.isEmpty)
         }
     }
 

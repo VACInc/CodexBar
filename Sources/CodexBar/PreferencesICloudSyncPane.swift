@@ -64,7 +64,7 @@ struct ICloudSyncPane: View {
             }
 
             Section {
-                TextField("https://codexbar.example", text: self.$remoteCodexBarServerURLDraft)
+                TextField("https://codexbar.example", text: self.remoteCodexBarServerURLDraftBinding)
                     .textFieldStyle(.roundedBorder)
                 SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
                     .textFieldStyle(.roundedBorder)
@@ -141,6 +141,21 @@ struct ICloudSyncPane: View {
 
     private var syncCanBeEnabled: Bool {
         self.state.availability == .available
+    }
+
+    private var remoteCodexBarServerURLDraftBinding: Binding<String> {
+        Binding(
+            get: { self.remoteCodexBarServerURLDraft },
+            set: { newValue in
+                let committedEndpoint = self.settings.remoteCodexBarServerURL
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let newEndpoint = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if newEndpoint != committedEndpoint {
+                    self.remoteCodexBarBearerTokenDraft = ""
+                    self.remoteCodexBarPlainHTTPConsentEndpoint = nil
+                }
+                self.remoteCodexBarServerURLDraft = newValue
+            })
     }
 
     private var remoteCodexBarDraftConfiguration: RemoteCodexBarConfiguration? {

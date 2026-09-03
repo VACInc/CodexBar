@@ -28,7 +28,7 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
                 allowsPlainHTTP: credential.allowsPlainHTTP)
         case .missing:
             return nil
-        case .temporarilyUnavailable:
+        case .interactionRequired, .temporarilyUnavailable:
             throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
         case .invalid:
             throw RemoteCodexBarTokenStoreError.invalidData

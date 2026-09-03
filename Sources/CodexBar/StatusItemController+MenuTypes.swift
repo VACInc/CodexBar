@@ -14,7 +14,7 @@ extension StatusItemController {
         }
         // Intentionally uses availability-filtered list: fallback activates when no provider
         // can actually work, ensuring at least a codex icon is always visible.
-        self.store.enabledProviders().isEmpty ? .codex : nil
+        self.store.enabledProviders().isEmpty ? UsageProvider.codex : nil
     }
 }
 

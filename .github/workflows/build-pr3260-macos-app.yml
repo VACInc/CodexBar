@@ -1,0 +1,33 @@
+name: Build PR 3260 macOS app
+
+on:
+  push:
+    branches:
+      - build/pr3260-macos-artifact
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Package ad-hoc signed app
+        run: |
+          set -euo pipefail
+          CODEXBAR_SIGNING=adhoc ./Scripts/package_app.sh release
+          codesign --verify --deep --strict --verbose=2 CodexBar.app
+          test -z "$(find CodexBar.app -name '._*' -print -quit)"
+          ditto -c -k --keepParent CodexBar.app CodexBar-PR3260-macos-arm64.zip
+          shasum -a 256 CodexBar-PR3260-macos-arm64.zip > CodexBar-PR3260-macos-arm64.zip.sha256
+      - name: Upload installable app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: CodexBar-PR3260-macos-arm64
+          path: |
+            CodexBar-PR3260-macos-arm64.zip
+            CodexBar-PR3260-macos-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 7

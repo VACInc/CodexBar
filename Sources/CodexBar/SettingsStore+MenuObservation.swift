@@ -11,6 +11,7 @@ extension SettingsStore {
         _ = self.debugDisableKeychainAccess
         _ = self.debugKeepCLISessionsAlive
         _ = self.remoteCodexBarConfigurationRevision
+        _ = self.remoteCodexBarRemoteOnlyEnabled
         _ = self.statusChecksEnabled
         _ = self.sessionQuotaNotificationsEnabled
         _ = self.quotaWarningNotificationsEnabled

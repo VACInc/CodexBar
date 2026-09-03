@@ -206,8 +206,10 @@ extension UsageStore {
         now: Date,
         previousEntry: WidgetSnapshot.ProviderEntry?) -> WidgetSnapshot.ProviderEntry?
     {
-        let snapshot = self.snapshots[provider.instanceID]
-        let storedTokenSnapshot = self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
+        let snapshot = self.snapshot(for: provider.instanceID)
+        let storedTokenSnapshot = self.settings.usesRemoteCodexBarProvidersOnly
+            ? nil
+            : self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
         let claudeQuotaOwnerKey: String? = if provider == .claude {
             self.claudeWidgetQuotaOwnerKey()
         } else {

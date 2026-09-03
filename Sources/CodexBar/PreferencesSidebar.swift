@@ -15,6 +15,7 @@ struct SettingsSidebarView: View {
             HStack(spacing: 6) {
                 SettingsSidebarSearchField(searchText: self.$searchText)
                 SettingsSidebarSortToggle(isOn: self.sortAlphabeticallyBinding)
+                    .disabled(self.settings.usesRemoteCodexBarProvidersOnly)
             }
             .padding(.horizontal, 8)
             .padding(.top, 16)
@@ -78,6 +79,7 @@ struct SettingsSidebarView: View {
                     .padding(.trailing, 10)
             }
         }
+        .disabled(self.settings.usesRemoteCodexBarProvidersOnly)
     }
 
     private var selectionBinding: Binding<SettingsPane?> {
@@ -119,7 +121,8 @@ struct SettingsSidebarView: View {
     }
 
     private var canReorderProviders: Bool {
-        !self.settings.providersSortedAlphabetically
+        !self.settings.usesRemoteCodexBarProvidersOnly
+            && !self.settings.providersSortedAlphabetically
             && self.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 

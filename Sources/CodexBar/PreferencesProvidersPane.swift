@@ -102,6 +102,7 @@ struct ProvidersPane: View {
                         })
                 }
             })
+            .disabled(self.settings.usesRemoteCodexBarProvidersOnly)
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 self.runSettingsDidBecomeActiveHooks()
             }

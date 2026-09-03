@@ -45,6 +45,11 @@ extension UsageStore {
 
     var iconObservationToken: Int {
         _ = self.snapshots
+        // Remote CodexBar snapshots drive the menu-bar icon in remote-only mode (and act as
+        // fallback data otherwise); without observing them the status item never re-renders
+        // when served snapshots arrive, even though the menu does. See menuObservationToken.
+        _ = self.remoteCodexBarSnapshots
+        _ = self.remoteCodexBarPrimarySnapshots
         _ = self.claudeSwapAccountSnapshots
         _ = self.claudeSwapRevision
         _ = self.errors

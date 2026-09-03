@@ -664,7 +664,7 @@ final class UsageStore {
         if self.settings.usesRemoteCodexBarProvidersOnly {
             return self.remoteCodexBarError != nil
         }
-        self.errors[provider.instanceID] != nil
+        return self.errors[provider.instanceID] != nil
     }
 
     func knownLimitsAvailability(for provider: UsageProvider) -> UsageLimitsAvailability? {

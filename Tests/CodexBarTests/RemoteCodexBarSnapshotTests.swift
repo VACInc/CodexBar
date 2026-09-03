@@ -88,14 +88,24 @@ struct RemoteCodexBarSnapshotTests {
 
     @MainActor
     @Test
-    func `remote only mode uses served provider inventory and disables local background providers`() {
+    func `remote only mode uses served provider inventory and disables local background providers`() async {
         let settings = testSettingsStore(
             suiteName: "RemoteCodexBarSnapshotTests-remote-only",
             remoteCodexBarTokenStore: InMemoryRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
                 serverURL: "https://example.com",
                 bearerToken: "token",
                 allowsPlainHTTP: false)))
-        let store = UsageStore(settings: settings)
+        let remoteTransport = ProviderHTTPTransportHandler { request in
+            let response = try #require(HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil))
+            return (Data(Self.snapshotJSON.utf8), response)
+        }
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing,
+            remoteCodexBarClient: RemoteCodexBarSnapshotClient(transport: remoteTransport))
         store.remoteCodexBarProviderIDs = [.codex, .claude]
         store.remoteCodexBarPrimarySnapshots[.codex] = UsageSnapshot(
             primary: .init(
@@ -118,6 +128,12 @@ struct RemoteCodexBarSnapshotTests {
         #expect(store.enabledProvidersForBackgroundWork().isEmpty)
         #expect(store.snapshot(for: .codex)?.identity?.accountEmail == "remote@example.com")
         #expect(store.isEnabled(.claude))
+
+        var performedLocalRefresh = false
+        store._test_providerRefreshOverride = { _ in performedLocalRefresh = true }
+        await store.refreshProvider(.codex)
+        #expect(!performedLocalRefresh)
+        #expect(store.remoteCodexBarPrimarySnapshots[.codex]?.identity?.accountEmail == "person@example.com")
 
         settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "")
         #expect(!settings.remoteCodexBarRemoteOnlyEnabled)

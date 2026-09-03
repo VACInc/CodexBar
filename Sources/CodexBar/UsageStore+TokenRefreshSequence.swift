@@ -61,6 +61,7 @@ extension UsageStore {
     }
 
     func refreshTokenUsageNow(for provider: UsageProvider, force: Bool) async {
+        guard !self.settings.usesRemoteCodexBarProvidersOnly else { return }
         if force,
            self.tokenRefreshSequenceTask != nil,
            let activeProvider = self.tokenRefreshSequenceProvider,

@@ -84,6 +84,16 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         interaction: ProviderInteraction) async
     {
         await self.withProviderInteraction(interaction) {
+            if self.settings.usesRemoteCodexBarProvidersOnly {
+                await self.store.refreshRemoteCodexBarSnapshot()
+                guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                if refreshOpenMenusWhenComplete {
+                    self.refreshOpenMenusAfterExplicitStoreAction()
+                } else {
+                    self.invalidateMenus()
+                }
+                return
+            }
             await self.store.awaitForcedRefreshEnrichment()
             guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
             let refreshStartedAt = Date()

@@ -202,6 +202,7 @@ extension UsageStore {
     }
 
     func status(for provider: UsageProvider) -> ProviderStatus? {
+        guard !self.settings.usesRemoteCodexBarProvidersOnly else { return nil }
         guard self.statusChecksEnabled else { return nil }
         return self.statuses[provider.instanceID]
     }
@@ -211,6 +212,7 @@ extension UsageStore {
     }
 
     func statusComponents(for provider: UsageProvider) -> [ProviderStatusComponent] {
+        guard !self.settings.usesRemoteCodexBarProvidersOnly else { return [] }
         guard self.statusChecksEnabled else { return [] }
         return self.statusComponents[provider.instanceID] ?? []
     }

@@ -3,6 +3,7 @@ import Foundation
 
 extension UsageStore {
     func refreshProviderStatus(_ provider: UsageProvider) async {
+        guard !self.settings.usesRemoteCodexBarProvidersOnly else { return }
         guard self.settings.statusChecksEnabled else { return }
         guard let meta = self.providerMetadata[provider] else { return }
         let publicationRevision = self.providerPublicationRevision(for: provider)

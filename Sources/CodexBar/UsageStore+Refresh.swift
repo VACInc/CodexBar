@@ -149,6 +149,11 @@ extension UsageStore {
         allowDisabled: Bool = false,
         coalesceIfRefreshing: Bool = false) async
     {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            await self.refreshRemoteCodexBarSnapshot()
+            self.persistWidgetSnapshot(reason: "remote-only-provider-refresh")
+            return
+        }
         // Codex source reconciliation can persist a settings correction. Perform it before
         // capturing the publication revision so the request cannot invalidate itself.
         self.prepareRefreshState(for: provider)

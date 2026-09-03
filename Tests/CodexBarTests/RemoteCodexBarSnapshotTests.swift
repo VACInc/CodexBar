@@ -279,6 +279,27 @@ struct RemoteCodexBarSnapshotTests {
             ["Bearer server-a-token"])
     }
 
+    @MainActor
+    @Test
+    func `failed initial token save connects for the current session only`() throws {
+        let tokens = FailingRemoteCodexBarTokenStore()
+        tokens.failWrites = true
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-failed-initial-token-save",
+            remoteCodexBarTokenStore: tokens)
+
+        #expect(settings.applyRemoteCodexBarConfiguration(
+            serverURL: "https://server.example.com",
+            bearerToken: "session-token"))
+        #expect(settings.remoteCodexBarConfiguration != nil)
+        #expect(settings.remoteCodexBarServerURL == "https://server.example.com")
+        #expect(settings.remoteCodexBarBearerToken == "session-token")
+        #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
+            "https://server.example.com")
+        #expect(settings.remoteCodexBarSecretError?.contains("Connected for this session only") == true)
+        #expect(try tokens.loadCredential() == nil)
+    }
+
     @Test
     func `production transport aborts oversized retryable responses without retrying`() async throws {
         RemoteCodexBarOversizedURLProtocol.reset()

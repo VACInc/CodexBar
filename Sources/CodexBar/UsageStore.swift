@@ -9,12 +9,8 @@ import SweetCookieKit
 @MainActor
 extension UsageStore {
     var menuObservationToken: Int {
-        _ = self.snapshots
-        _ = self.remoteCodexBarSnapshots
-        _ = self.remoteCodexBarError
-        _ = self.remoteCodexBarRefreshInFlight
-        _ = self.errors
-        _ = self.diagnostics
+        _ = (self.snapshots, self.remoteCodexBarSnapshots, self.remoteCodexBarError, self.remoteCodexBarRefreshInFlight)
+        _ = (self.errors, self.diagnostics)
         _ = self.knownLimitsAvailabilityByProvider
         _ = self.lastSourceLabels
         _ = self.lastFetchAttempts

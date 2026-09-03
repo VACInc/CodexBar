@@ -17,6 +17,14 @@ extension StatusItemController {
     }
 
     func fleetAccountProjection(for provider: UsageProvider) -> FleetAccountMenuProjection {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return FleetAccountMenuPlanner.projection(
+                provider: provider,
+                snapshots: self.store.remoteCodexBarSnapshots,
+                currentDeviceID: self.settings.iCloudSyncDeviceID,
+                localAccountKeys: [],
+                hasLocalUsage: false)
+        }
         let iCloudSnapshots: [AccountSnapshotSyncPayload] = if self.settings.iCloudSyncEnabled,
                                                                self.settings.iCloudSyncSnapshotsEnabled,
                                                                self.settings.iCloudSyncShowFleetAccounts

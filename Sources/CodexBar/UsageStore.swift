@@ -9,7 +9,8 @@ import SweetCookieKit
 @MainActor
 extension UsageStore {
     var menuObservationToken: Int {
-        _ = (self.snapshots, self.remoteCodexBarSnapshots, self.remoteCodexBarError, self.remoteCodexBarRefreshInFlight)
+        _ = (self.snapshots, self.remoteCodexBarSnapshots, self.remoteCodexBarPrimarySnapshots)
+        _ = (self.remoteCodexBarProviderIDs, self.remoteCodexBarError, self.remoteCodexBarRefreshInFlight)
         _ = (self.errors, self.diagnostics)
         _ = self.knownLimitsAvailabilityByProvider
         _ = self.lastSourceLabels
@@ -106,7 +107,7 @@ extension UsageStore {
 
     /// Returns the login method (plan type) for the specified provider, if available.
     private func loginMethod(for provider: UsageProvider) -> String? {
-        self.snapshots[provider.instanceID]?.loginMethod(for: provider)
+        self.snapshot(for: provider.instanceID)?.loginMethod(for: provider)
     }
 
     /// Returns true if the Claude account appears to be a subscription (Max, Pro, Ultra, Team).
@@ -124,7 +125,7 @@ extension UsageStore {
 
     var preferredSnapshot: UsageSnapshot? {
         for provider in self.enabledProviders() {
-            if let snap = self.snapshots[provider] {
+            if let snap = self.snapshot(for: provider) {
                 return snap
             }
         }
@@ -166,6 +167,8 @@ final class UsageStore {
 
     var snapshots: [ProviderInstanceID: UsageSnapshot] = [:]
     var remoteCodexBarSnapshots: [AccountSnapshotSyncPayload] = []
+    var remoteCodexBarProviderIDs: [ProviderInstanceID] = []
+    var remoteCodexBarPrimarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
     var remoteCodexBarError: String?
     var remoteCodexBarRefreshInFlight = false
     @ObservationIgnored var remoteCodexBarSnapshotConfigurationID: String?
@@ -598,33 +601,12 @@ final class UsageStore {
         return false
     }
 
-    func enabledProviders() -> [ProviderInstanceID] {
-        // Use cached enablement to avoid repeated UserDefaults lookups in animation ticks.
-        let enabled = self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata)
-        let now = Date()
-        return enabled.filter { self.isEnabledProviderInstance($0, now: now) }
-    }
-
-    /// Enabled providers without availability filtering. Used for display (switcher, merge-icons).
-    func enabledProvidersForDisplay() -> [ProviderInstanceID] {
-        self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata)
-    }
-
-    /// Providers that should actually participate in background refresh/status/token work.
-    func enabledProvidersForBackgroundWork() -> [ProviderInstanceID] {
-        self.enabledProviders()
-    }
-
     func metadata(for provider: UsageProvider) -> ProviderMetadata {
         self.providerMetadata[provider]!
     }
 
     var codexBrowserCookieOrder: BrowserCookieImportOrder {
         self.metadata(for: .codex).browserCookieOrder ?? Browser.defaultImportOrder
-    }
-
-    func snapshot(for instanceID: ProviderInstanceID) -> UsageSnapshot? {
-        self.snapshots[instanceID]
     }
 
     /// The snapshot the menu-bar indicator should render for a provider instance.
@@ -639,6 +621,9 @@ final class UsageStore {
     }
 
     func sourceLabel(for provider: UsageProvider) -> String {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return "remote CodexBar"
+        }
         var label = self.lastSourceLabels[provider.instanceID] ?? ""
         if label.isEmpty {
             let descriptor = ProviderDescriptorRegistry.descriptor(for: provider)
@@ -676,6 +661,9 @@ final class UsageStore {
     }
 
     func isStale(provider: UsageProvider) -> Bool {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarError != nil
+        }
         self.errors[provider.instanceID] != nil
     }
 
@@ -693,6 +681,9 @@ final class UsageStore {
     }
 
     func isEnabled(_ provider: UsageProvider) -> Bool {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarProviderIDs.contains(provider.instanceID)
+        }
         let enabled = self.settings.isProviderEnabledCached(
             provider: provider,
             metadataByProvider: self.providerMetadata)
@@ -786,6 +777,12 @@ final class UsageStore {
                 self.isRefreshing = false
                 self.hasCompletedInitialRefresh = true
                 self.startupConnectivityRetryRefreshActive = false
+            }
+
+            if self.settings.usesRemoteCodexBarProvidersOnly {
+                await self.refreshRemoteCodexBarSnapshot()
+                self.persistWidgetSnapshot(reason: "remote-only-refresh")
+                return true
             }
 
             self.clearDisabledProviderState(enabledProviders: enabledProviderSet)

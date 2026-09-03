@@ -379,6 +379,8 @@ struct RemoteCodexBarSnapshot: Decodable, Sendable {
 
 struct RemoteCodexBarProjection: Sendable {
     let snapshots: [AccountSnapshotSyncPayload]
+    let providerIDs: [ProviderInstanceID]
+    let primarySnapshots: [ProviderInstanceID: UsageSnapshot]
 
     static func make(
         snapshot: RemoteCodexBarSnapshot,
@@ -386,27 +388,47 @@ struct RemoteCodexBarProjection: Sendable {
     {
         let serverIdentity = serverURL.absoluteString
         var projected: [AccountSnapshotSyncPayload] = []
+        var providerIDs: [ProviderInstanceID] = []
+        var primarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
         for row in snapshot.providers where row.enabled {
             guard let provider = UsageProvider(rawValue: row.id) else { continue }
+            providerIDs.append(provider.instanceID)
             let providerIdentity = row.identity?.accountEmail
                 ?? "\(serverIdentity)|\(row.id)|default"
-            if row.accounts.isEmpty,
-               let usage = self.usageSnapshot(
-                   provider: provider,
-                   windows: row.windows,
-                   identity: row.identity,
-                   status: row.status,
-                   credits: row.credits,
-                   cost: row.cost,
-                   error: row.error?.message ?? row.accountsError,
-                   updatedAt: row.updatedAt ?? snapshot.generatedAt)
-            {
+            let rowUsage = self.usageSnapshot(
+                provider: provider,
+                windows: row.windows,
+                identity: row.identity,
+                status: row.status,
+                credits: row.credits,
+                cost: row.cost,
+                error: row.error?.message ?? row.accountsError,
+                updatedAt: row.updatedAt ?? snapshot.generatedAt)
+            if let rowUsage {
+                primarySnapshots[provider.instanceID] = rowUsage
+            }
+            if row.accounts.isEmpty, let rowUsage {
                 projected.append(AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
                     deviceID: "remote-codexbar",
                     accountIdentity: providerIdentity,
                     displayLabel: row.identity?.accountEmail ?? row.name,
-                    usage: usage))
+                    usage: rowUsage))
+            }
+
+            if primarySnapshots[provider.instanceID] == nil,
+               let account = row.accounts.first(where: { $0.active }) ?? row.accounts.first,
+               let usage = self.usageSnapshot(
+                   provider: provider,
+                   windows: account.windows,
+                   identity: account.identity,
+                   status: nil,
+                   credits: nil,
+                   cost: nil,
+                   error: account.error,
+                   updatedAt: account.updatedAt ?? row.updatedAt ?? snapshot.generatedAt)
+            {
+                primarySnapshots[provider.instanceID] = usage
             }
 
             for account in row.accounts {
@@ -432,7 +454,10 @@ struct RemoteCodexBarProjection: Sendable {
                     usage: usage))
             }
         }
-        return Self(snapshots: projected)
+        return Self(
+            snapshots: projected,
+            providerIDs: providerIDs,
+            primarySnapshots: primarySnapshots)
     }
 
     private static func accountIdentity(

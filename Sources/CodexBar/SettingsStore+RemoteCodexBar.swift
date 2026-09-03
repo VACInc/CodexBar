@@ -2,6 +2,21 @@ import CodexBarCore
 import Foundation
 
 extension SettingsStore {
+    var remoteCodexBarRemoteOnlyEnabled: Bool {
+        get { self.defaultsState.remoteCodexBarRemoteOnlyEnabled }
+        set {
+            guard self.defaultsState.remoteCodexBarRemoteOnlyEnabled != newValue else { return }
+            self.defaultsState.remoteCodexBarRemoteOnlyEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "remoteCodexBarRemoteOnlyEnabled")
+            self.remoteCodexBarConfigurationRevision &+= 1
+            self.noteBackgroundWorkSettingsChanged()
+        }
+    }
+
+    var usesRemoteCodexBarProvidersOnly: Bool {
+        self.remoteCodexBarRemoteOnlyEnabled && self.remoteCodexBarConfiguration != nil
+    }
+
     var remoteCodexBarServerURL: String {
         get { self.remoteCodexBarServerURLStorage }
         set {
@@ -80,6 +95,9 @@ extension SettingsStore {
         self.remoteCodexBarBearerTokenStorage = normalizedToken
         self.remoteCodexBarAllowsPlainHTTPStorage = storesPlainHTTPConsent
         self.userDefaults.set(normalizedURL, forKey: "remoteCodexBarServerURL")
+        if credential == nil {
+            self.remoteCodexBarRemoteOnlyEnabled = false
+        }
         self.remoteCodexBarTokenLoadNeedsRetry = false
         self.remoteCodexBarSecretError = nil
         self.remoteCodexBarConfigurationRevision &+= 1

@@ -57,9 +57,12 @@ extension UsageStore {
             guard !Task.isCancelled,
                   self.settings.remoteCodexBarConfiguration?.configurationID == configurationID
             else { return }
-            self.remoteCodexBarSnapshots = RemoteCodexBarProjection.make(
+            let projection = RemoteCodexBarProjection.make(
                 snapshot: snapshot,
-                serverURL: configuration.snapshotURL).snapshots
+                serverURL: configuration.snapshotURL)
+            self.remoteCodexBarSnapshots = projection.snapshots
+            self.remoteCodexBarProviderIDs = projection.providerIDs
+            self.remoteCodexBarPrimarySnapshots = projection.primarySnapshots
             self.remoteCodexBarError = nil
         } catch is CancellationError {
             return
@@ -69,6 +72,8 @@ extension UsageStore {
                !snapshotError.preservesLastGoodSnapshot
             {
                 self.remoteCodexBarSnapshots = []
+                self.remoteCodexBarProviderIDs = []
+                self.remoteCodexBarPrimarySnapshots = [:]
             }
             // Preserve the last successful cards only for a transient failure of this exact configuration.
             self.remoteCodexBarError = error.localizedDescription
@@ -80,12 +85,16 @@ extension UsageStore {
            previousConfigurationID != configurationID
         {
             self.remoteCodexBarSnapshots = []
+            self.remoteCodexBarProviderIDs = []
+            self.remoteCodexBarPrimarySnapshots = [:]
         }
         self.remoteCodexBarSnapshotConfigurationID = configurationID
     }
 
     private func clearRemoteCodexBarState() {
         self.remoteCodexBarSnapshots = []
+        self.remoteCodexBarProviderIDs = []
+        self.remoteCodexBarPrimarySnapshots = [:]
         self.remoteCodexBarError = nil
         self.remoteCodexBarRefreshInFlight = false
         self.remoteCodexBarSnapshotConfigurationID = nil

@@ -77,11 +77,50 @@ struct RemoteCodexBarSnapshotTests {
 
         let projection = RemoteCodexBarProjection.make(snapshot: snapshot, serverURL: configuration.snapshotURL)
         #expect(projection.snapshots.count == 1)
+        #expect(projection.providerIDs == [.codex])
+        #expect(projection.primarySnapshots[.codex]?.primary?.usedPercent == 15)
         let account = try #require(projection.snapshots.first)
         #expect(account.provider == UsageProvider.codex.instanceID)
         #expect(account.accountKey == AccountSnapshotSyncPayload.accountKey(for: "work@example.com"))
         #expect(account.displayLabel == "Work")
         #expect(account.usage.primary?.usedPercent == 15)
+    }
+
+    @MainActor
+    @Test
+    func `remote only mode uses served provider inventory and disables local background providers`() {
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-remote-only",
+            remoteCodexBarTokenStore: InMemoryRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+                serverURL: "https://example.com",
+                bearerToken: "token",
+                allowsPlainHTTP: false)))
+        let store = UsageStore(settings: settings)
+        store.remoteCodexBarProviderIDs = [.codex, .claude]
+        store.remoteCodexBarPrimarySnapshots[.codex] = UsageSnapshot(
+            primary: .init(
+                usedPercent: 25,
+                windowMinutes: 300,
+                resetsAt: nil,
+                resetDescription: nil),
+            secondary: nil,
+            updatedAt: Date(),
+            identity: .init(
+                providerID: .codex,
+                accountEmail: "remote@example.com",
+                accountOrganization: nil,
+                loginMethod: "Plus"))
+
+        settings.remoteCodexBarRemoteOnlyEnabled = true
+
+        #expect(settings.usesRemoteCodexBarProvidersOnly)
+        #expect(store.enabledProvidersForDisplay() == [.codex, .claude])
+        #expect(store.enabledProvidersForBackgroundWork().isEmpty)
+        #expect(store.snapshot(for: .codex)?.identity?.accountEmail == "remote@example.com")
+        #expect(store.isEnabled(.claude))
+
+        settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "")
+        #expect(!settings.remoteCodexBarRemoteOnlyEnabled)
     }
 
     @Test

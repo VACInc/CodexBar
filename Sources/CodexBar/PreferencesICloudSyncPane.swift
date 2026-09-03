@@ -92,6 +92,12 @@ struct ICloudSyncPane: View {
                     }
                     .disabled(self.settings.remoteCodexBarConfiguration == nil)
                 }
+
+                Toggle(
+                    "Use every provider from this server only",
+                    isOn: self.remoteOnlyBinding)
+                    .toggleStyle(.checkbox)
+                    .disabled(self.settings.remoteCodexBarConfiguration == nil)
             } header: {
                 Text("Remote CodexBar")
             } footer: {
@@ -103,7 +109,10 @@ struct ICloudSyncPane: View {
                     SettingsSectionFooter(message)
                 } else {
                     SettingsSectionFooter(
-                        "Connects to a separately running codexbar serve and shows its provider snapshots in menus.")
+                        self.settings.usesRemoteCodexBarProvidersOnly
+                            ? "Local provider probes are disabled. Provider menus and usage come only from this server."
+                            :
+                            "Connects to a separately running codexbar serve and shows its provider snapshots in menus.")
                 }
             }
 
@@ -244,6 +253,12 @@ struct ICloudSyncPane: View {
         Binding(
             get: { self.settings.iCloudSyncShowFleetAccounts },
             set: { self.settings.iCloudSyncShowFleetAccounts = $0 })
+    }
+
+    private var remoteOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { self.settings.remoteCodexBarRemoteOnlyEnabled },
+            set: { self.settings.remoteCodexBarRemoteOnlyEnabled = $0 })
     }
 
     private func relativeTime(_ date: Date?) -> String {

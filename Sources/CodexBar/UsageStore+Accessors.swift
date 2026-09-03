@@ -31,15 +31,18 @@ extension UsageStore {
 
     var codexSnapshot: UsageSnapshot? {
         // Provider-specific by design: dedicated Codex consumers require the reconciled primary-account snapshot.
-        self.snapshots[.codex]
+        self.snapshot(for: .codex)
     }
 
     var claudeSnapshot: UsageSnapshot? {
         // Provider-specific by design: Claude swap/account consumers require the active Claude snapshot directly.
-        self.snapshots[.claude]
+        self.snapshot(for: .claude)
     }
 
     func presentationSnapshot(for provider: UsageProvider) -> UsageSnapshot? {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.snapshot(for: provider.instanceID)
+        }
         // Provider-specific by design: DeepSeek profile transitions and Codex dashboard attachment overlay live state.
         if provider == .deepseek,
            let transition = self.deepseekProfileTransition,
@@ -149,6 +152,9 @@ extension UsageStore {
     }
 
     func userFacingError(for provider: UsageProvider) -> String? {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarError
+        }
         if let raw = self.errors[provider.instanceID] {
             switch provider {
             case .codex:
@@ -170,6 +176,11 @@ extension UsageStore {
     }
 
     func unavailableMessage(for provider: UsageProvider) -> String? {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarPrimarySnapshots[provider.instanceID] == nil
+                ? "No usage snapshot received from remote CodexBar"
+                : nil
+        }
         guard self.enabledProvidersForDisplay().contains(provider.instanceID),
               !self.isProviderAvailable(provider)
         else {

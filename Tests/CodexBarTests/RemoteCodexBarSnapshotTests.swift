@@ -300,6 +300,36 @@ struct RemoteCodexBarSnapshotTests {
         #expect(try tokens.loadCredential() == nil)
     }
 
+    @MainActor
+    @Test
+    func `failed token deletion disconnects the session but preserves durable authority`() throws {
+        let durableCredential = RemoteCodexBarStoredCredential(
+            serverURL: "https://server.example.com",
+            bearerToken: "durable-token",
+            allowsPlainHTTP: false)
+        let tokens = FailingRemoteCodexBarTokenStore(value: durableCredential)
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-failed-token-deletion",
+            remoteCodexBarTokenStore: tokens)
+        settings.remoteCodexBarRemoteOnlyEnabled = true
+        tokens.failWrites = true
+
+        #expect(settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: ""))
+        #expect(settings.remoteCodexBarConfiguration == nil)
+        #expect(settings.remoteCodexBarServerURL.isEmpty)
+        #expect(settings.remoteCodexBarBearerToken.isEmpty)
+        #expect(!settings.remoteCodexBarRemoteOnlyEnabled)
+        #expect(settings.remoteCodexBarSecretError?.contains("saved Keychain item could not be removed") == true)
+        #expect(try tokens.loadCredential() == durableCredential)
+
+        let restarted = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-failed-token-deletion-restart",
+            remoteCodexBarTokenStore: tokens)
+        #expect(restarted.remoteCodexBarServerURL == durableCredential.serverURL)
+        #expect(restarted.remoteCodexBarBearerToken == durableCredential.bearerToken)
+        #expect(restarted.remoteCodexBarConfiguration != nil)
+    }
+
     @Test
     func `production transport aborts oversized retryable responses without retrying`() async throws {
         RemoteCodexBarOversizedURLProtocol.reset()

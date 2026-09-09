@@ -82,18 +82,12 @@ extension SettingsStore {
 
         // The Keychain record binds the endpoint and token in one durable write. UserDefaults keeps only
         // a display draft, so an interruption can never recombine authority from two different servers.
-        // Ad-hoc builds can lose access to the prior build's Keychain ACL after replacement. A first
-        // connection may still run safely from process memory; never use that fallback to replace an
-        // already-active authority pair, where a failed durable write must preserve the old pair.
-        var persistenceError: Error?
+        // Do not report a successful connection unless the credential will survive an app restart.
         do {
             try self.remoteCodexBarTokenStore.storeCredential(credential)
         } catch {
-            guard credential == nil || self.remoteCodexBarConfiguration == nil else {
-                self.remoteCodexBarSecretError = error.localizedDescription
-                return false
-            }
-            persistenceError = error
+            self.remoteCodexBarSecretError = error.localizedDescription
+            return false
         }
 
         // These storage properties are deliberately not part of menu observation. Publishing one
@@ -106,14 +100,7 @@ extension SettingsStore {
             self.remoteCodexBarRemoteOnlyEnabled = false
         }
         self.remoteCodexBarTokenLoadNeedsRetry = false
-        self.remoteCodexBarSecretError = persistenceError.map { error in
-            if credential == nil {
-                return "Disconnected for this session, but the saved Keychain item could not be removed. " +
-                    error.localizedDescription
-            }
-            return error.localizedDescription +
-                " Connected for this session only; the token will be forgotten when CodexBar quits."
-        }
+        self.remoteCodexBarSecretError = nil
         self.remoteCodexBarConfigurationRevision &+= 1
         self.noteBackgroundWorkSettingsChanged()
         return true

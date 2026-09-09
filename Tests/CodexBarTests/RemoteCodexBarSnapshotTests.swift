@@ -6,6 +6,65 @@ import Testing
 @Suite(.serialized)
 struct RemoteCodexBarSnapshotTests {
     @Test
+    func `live Keychain credential migrates and survives fresh store instances`() throws {
+        guard ProcessInfo.processInfo.environment["LIVE_REMOTE_CODEXBAR_KEYCHAIN_PROOF"] == "1" else { return }
+        guard ProcessInfo.processInfo.environment[KeychainTestSafety.allowAccessEnvironmentKey] == "1" else {
+            Issue.record("Live proof requires CODEXBAR_ALLOW_TEST_KEYCHAIN_ACCESS=1")
+            return
+        }
+
+        let service = "com.steipete.CodexBar.tests.remote-credential.\(UUID().uuidString)"
+        let account = "restart-proof"
+        let legacyService = "com.steipete.CodexBar.tests.remote-legacy.\(UUID().uuidString)"
+        let legacyKey = KeychainCacheStore.Key(
+            category: "remote-codexbar-secret",
+            identifier: "dashboard-bearer-token")
+        let credential = RemoteCodexBarStoredCredential(
+            serverURL: "https://restart-proof.example.com",
+            bearerToken: "restart-proof-token",
+            allowsPlainHTTP: false)
+
+        try KeychainAccessGate.withTaskOverrideForTesting(false) {
+            try KeychainCacheStore.withServiceOverrideForTesting(legacyService) {
+                #expect(KeychainCacheStore.storeResult(key: legacyKey, entry: credential))
+                defer { KeychainCacheStore.clear(key: legacyKey) }
+
+                let writer = KeychainRemoteCodexBarTokenStore(service: service, account: account)
+                defer { try? writer.deleteStoredItemForTesting() }
+                #expect(try writer.loadCredential() == credential)
+
+                let freshReader = KeychainRemoteCodexBarTokenStore(service: service, account: account)
+                #expect(try freshReader.loadCredential() == credential)
+                if case .missing = KeychainCacheStore.load(key: legacyKey, as: RemoteCodexBarStoredCredential.self) {
+                    // Expected: migration removed the legacy secret.
+                } else {
+                    Issue.record("Migration left the legacy credential behind")
+                }
+
+                try writer.storeCredential(nil)
+                #expect(try freshReader.loadCredential() == nil)
+            }
+        }
+    }
+
+    @Test
+    func `transient Keychain statuses remain retryable`() throws {
+        #expect(KeychainRemoteCodexBarTokenStore.readError(for: errSecInteractionNotAllowed) == .temporarilyUnavailable)
+        #expect(KeychainRemoteCodexBarTokenStore.readError(for: errSecNotAvailable) == .temporarilyUnavailable)
+
+        let store = KeychainRemoteCodexBarTokenStore(service: "test", account: "test")
+        try KeychainAccessGate.withTaskOverrideForTesting(false) {
+            try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting({ _, _ in
+                .temporarilyUnavailable
+            }) {
+                #expect(throws: RemoteCodexBarTokenStoreError.temporarilyUnavailable) {
+                    try store.loadCredential()
+                }
+            }
+        }
+    }
+
+    @Test
     func `URL validation accepts secure and private transports`() throws {
         let secure = try #require(RemoteCodexBarConfiguration.resolve(
             serverURL: "https://example.com/codexbar/",
@@ -281,28 +340,27 @@ struct RemoteCodexBarSnapshotTests {
 
     @MainActor
     @Test
-    func `failed initial token save connects for the current session only`() throws {
+    func `failed initial token save does not create a restart-unsafe connection`() throws {
         let tokens = FailingRemoteCodexBarTokenStore()
         tokens.failWrites = true
         let settings = testSettingsStore(
             suiteName: "RemoteCodexBarSnapshotTests-failed-initial-token-save",
             remoteCodexBarTokenStore: tokens)
 
-        #expect(settings.applyRemoteCodexBarConfiguration(
+        #expect(!settings.applyRemoteCodexBarConfiguration(
             serverURL: "https://server.example.com",
             bearerToken: "session-token"))
-        #expect(settings.remoteCodexBarConfiguration != nil)
-        #expect(settings.remoteCodexBarServerURL == "https://server.example.com")
-        #expect(settings.remoteCodexBarBearerToken == "session-token")
-        #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") ==
-            "https://server.example.com")
-        #expect(settings.remoteCodexBarSecretError?.contains("Connected for this session only") == true)
+        #expect(settings.remoteCodexBarConfiguration == nil)
+        #expect(settings.remoteCodexBarServerURL.isEmpty)
+        #expect(settings.remoteCodexBarBearerToken.isEmpty)
+        #expect(settings.userDefaults.string(forKey: "remoteCodexBarServerURL") == nil)
+        #expect(settings.remoteCodexBarSecretError?.contains("could not be saved securely") == true)
         #expect(try tokens.loadCredential() == nil)
     }
 
     @MainActor
     @Test
-    func `failed token deletion disconnects the session but preserves durable authority`() throws {
+    func `failed token deletion preserves the durable connection`() throws {
         let durableCredential = RemoteCodexBarStoredCredential(
             serverURL: "https://server.example.com",
             bearerToken: "durable-token",
@@ -314,12 +372,12 @@ struct RemoteCodexBarSnapshotTests {
         settings.remoteCodexBarRemoteOnlyEnabled = true
         tokens.failWrites = true
 
-        #expect(settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: ""))
-        #expect(settings.remoteCodexBarConfiguration == nil)
-        #expect(settings.remoteCodexBarServerURL.isEmpty)
-        #expect(settings.remoteCodexBarBearerToken.isEmpty)
-        #expect(!settings.remoteCodexBarRemoteOnlyEnabled)
-        #expect(settings.remoteCodexBarSecretError?.contains("saved Keychain item could not be removed") == true)
+        #expect(!settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: ""))
+        #expect(settings.remoteCodexBarConfiguration != nil)
+        #expect(settings.remoteCodexBarServerURL == durableCredential.serverURL)
+        #expect(settings.remoteCodexBarBearerToken == durableCredential.bearerToken)
+        #expect(settings.remoteCodexBarRemoteOnlyEnabled)
+        #expect(settings.remoteCodexBarSecretError?.contains("could not be saved securely") == true)
         #expect(try tokens.loadCredential() == durableCredential)
 
         let restarted = testSettingsStore(

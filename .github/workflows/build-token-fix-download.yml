@@ -1,0 +1,57 @@
+name: Build downloadable CodexBar token fix
+
+on:
+  push:
+    branches:
+      - artifact/codexbar-token-fix
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      TARGET_SHA: 445b9c2f1cef1a9529f7dee01cadc54f16784155
+      RELEASE_TAG: remote-sync-token-fix-445b9c2f1
+      ASSET: CodexBar-remote-sync-token-fix-arm64.zip
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app; do
+            if [[ -d "$candidate" ]]; then
+              sudo xcode-select -s "${candidate}/Contents/Developer"
+              break
+            fi
+          done
+          [[ "$(xcodebuild -version)" == Xcode\ 26.* ]]
+
+      - name: Package and verify app
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODEXBAR_SIGNING=adhoc ./Scripts/package_app.sh release
+          codesign --verify --deep --strict --verbose=2 CodexBar.app
+          ditto -c -k --sequesterRsrc --keepParent CodexBar.app "$ASSET"
+          shasum -a 256 "$ASSET" | tee "$ASSET.sha256"
+
+      - name: Publish prerelease download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete "$RELEASE_TAG" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$RELEASE_TAG" \
+            --target "$TARGET_SHA" \
+            --prerelease \
+            --title "CodexBar remote Sync token persistence fix" \
+            --notes "Unsigned preview build from commit $TARGET_SHA. Fixes durable remote Sync credential storage across app restarts. macOS arm64." \
+            "$ASSET" "$ASSET.sha256"

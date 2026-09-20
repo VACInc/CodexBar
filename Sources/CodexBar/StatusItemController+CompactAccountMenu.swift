@@ -8,12 +8,15 @@ import CodexBarCore
 extension StatusItemController {
     func compactAccountPlan(
         for provider: UsageProvider,
-        accounts: [ProviderAccountUsageSnapshot]) -> AccountMenuLayoutPlanner.Plan
+        accounts: [ProviderAccountUsageSnapshot],
+        minimumCompactAccountCount: Int = AccountMenuLayoutPlanner.compactLayoutMinimumAccountCount)
+        -> AccountMenuLayoutPlanner.Plan
     {
         AccountMenuLayoutPlanner.plan(
             accounts: accounts,
             expandedAccountIDs: self.compactAccountExpandedIDs,
-            healthyTailExpanded: self.compactAccountExpandedHealthyTailProviders.contains(provider.instanceID))
+            healthyTailExpanded: self.compactAccountExpandedHealthyTailProviders.contains(provider.instanceID),
+            minimumCompactAccountCount: minimumCompactAccountCount)
     }
 
     struct CompactAccountMenuRendering {
@@ -22,6 +25,9 @@ extension StatusItemController {
         let idPrefix: String
         let cardModel: (ProviderAccountUsageSnapshot) -> UsageMenuCardView.Model?
         var planAction: ((ProviderAccountUsageSnapshot) -> (() -> Void)?)?
+        /// Dims every rendered row. Remote/fleet accounts use it to keep the
+        /// "not this Mac" treatment the stacked fleet cards already have.
+        var cardOpacity: Double = 1
     }
 
     /// Renders the token-account list with the compact plan when it applies.
@@ -114,6 +120,7 @@ extension StatusItemController {
         let idPrefix = rendering.idPrefix
         let cardModel = rendering.cardModel
         let planAction = rendering.planAction
+        let cardOpacity = rendering.cardOpacity
         let provider = context.currentProvider
         let accountsByID = Dictionary(uniqueKeysWithValues: rendering.accounts.map { ($0.id, $0) })
         let progressColor = UsageMenuCardView.Model.progressColor(for: provider)
@@ -133,7 +140,8 @@ extension StatusItemController {
                     UsageMenuCardView(
                         model: model,
                         width: context.menuWidth,
-                        planAction: planAction?(account)),
+                        planAction: planAction?(account))
+                        .opacity(cardOpacity),
                     id: "\(idPrefix)Card-\(accountID.opaqueID)",
                     width: context.menuWidth,
                     heightCacheScope: "\(idPrefix)-card-\(accountID.opaqueID)",
@@ -159,7 +167,8 @@ extension StatusItemController {
                     MenuCardCompactAccountRowView(
                         model: rowModel,
                         progressColor: progressColor,
-                        width: context.menuWidth),
+                        width: context.menuWidth)
+                        .opacity(cardOpacity),
                     id: "\(idPrefix)Compact-\(accountID.opaqueID)",
                     width: context.menuWidth,
                     heightCacheScope: "\(idPrefix)-compact-\(accountID.opaqueID)",
@@ -171,7 +180,7 @@ extension StatusItemController {
             case let .collapsedHealthy(count):
                 let view = MenuCardCollapsedAccountsRowView(count: count, width: context.menuWidth)
                 menu.addItem(self.makeMenuCardItem(
-                    view,
+                    view.opacity(cardOpacity),
                     id: "\(idPrefix)Collapsed",
                     width: context.menuWidth,
                     heightCacheScope: "\(idPrefix)-collapsed",

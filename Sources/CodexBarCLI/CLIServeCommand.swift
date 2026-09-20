@@ -181,6 +181,10 @@ struct ServeUsageContext: Sendable {
     let providerDeadline: ContinuousClock.Instant?
     let providerOperations: CLIServeOperationCoordinator<UsageCommandOutput>
     let includeAllCodexAccounts: Bool
+    /// Enumerates every configured token account instead of only the selected one.
+    /// The dashboard snapshot opts in so remote CodexBar clients receive the same
+    /// multi-account rows the serving Mac can display locally.
+    let includeAllTokenAccounts: Bool
     let persistCLISessions: Bool
 
     init(
@@ -191,6 +195,7 @@ struct ServeUsageContext: Sendable {
         providerDeadline: ContinuousClock.Instant?,
         providerOperations: CLIServeOperationCoordinator<UsageCommandOutput>,
         includeAllCodexAccounts: Bool = true,
+        includeAllTokenAccounts: Bool = false,
         persistCLISessions: Bool = true)
     {
         self.config = config
@@ -200,6 +205,7 @@ struct ServeUsageContext: Sendable {
         self.providerDeadline = providerDeadline
         self.providerOperations = providerOperations
         self.includeAllCodexAccounts = includeAllCodexAccounts
+        self.includeAllTokenAccounts = includeAllTokenAccounts
         self.persistCLISessions = persistCLISessions
     }
 }
@@ -1036,7 +1042,8 @@ extension CodexBarCLI {
                             providerTimeout: providerTimeout,
                             providerDeadline: providerDeadline,
                             providerOperations: runtime.providerOperations,
-                            includeAllCodexAccounts: false),
+                            includeAllCodexAccounts: true,
+                            includeAllTokenAccounts: true),
                         costCollection: ServeCostCollectionContext(
                             configFingerprint: snapshot.cacheToken,
                             providerTimeout: providerTimeout,
@@ -1287,7 +1294,10 @@ extension CodexBarCLI {
         context: ServeUsageContext) async throws -> UsageCommandOutput
     {
         let tokenContext = try TokenAccountCLIContext(
-            selection: TokenAccountCLISelection(label: nil, index: nil, allAccounts: false),
+            selection: TokenAccountCLISelection(
+                label: nil,
+                index: nil,
+                allAccounts: context.includeAllTokenAccounts),
             config: context.config,
             verbose: false)
 
@@ -1317,7 +1327,8 @@ extension CodexBarCLI {
             providers: selection.asList,
             configFingerprint: Self.serveUsageOperationFingerprint(
                 configFingerprint: context.configFingerprint,
-                includeAllCodexAccounts: context.includeAllCodexAccounts),
+                includeAllCodexAccounts: context.includeAllCodexAccounts,
+                includeAllTokenAccounts: context.includeAllTokenAccounts),
             deadline: context.providerDeadline,
             operations: context.providerOperations)
         { provider in
@@ -1333,9 +1344,11 @@ extension CodexBarCLI {
 
     static func serveUsageOperationFingerprint(
         configFingerprint: String,
-        includeAllCodexAccounts: Bool) -> String
+        includeAllCodexAccounts: Bool,
+        includeAllTokenAccounts: Bool = false) -> String
     {
-        "\(configFingerprint):codex-accounts=\(includeAllCodexAccounts ? "all" : "selected")"
+        "\(configFingerprint):codex-accounts=\(includeAllCodexAccounts ? "all" : "selected")" +
+            ":token-accounts=\(includeAllTokenAccounts ? "all" : "selected")"
     }
 
     /// Adapts the shared dashboard snapshot producer to the authenticated HTTP

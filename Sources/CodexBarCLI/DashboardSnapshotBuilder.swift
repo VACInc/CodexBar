@@ -26,6 +26,7 @@ enum DashboardSnapshotBuilder {
         generatedAt: Date,
         refreshInterval: TimeInterval,
         codexBarVersion: String?,
+        activeAccountKeys: [String: String] = [:],
         claudeSwap: DashboardClaudeSwapInput? = nil) -> DashboardSnapshotPayload
     {
         var costByProvider: [String: CostPayload] = [:]
@@ -33,23 +34,32 @@ enum DashboardSnapshotBuilder {
             costByProvider[cost.provider] = cost
         }
         var attachedClaudeSwap = false
-        let providers = usagePayloads.enumerated().map { index, payload in
+        // Multi-account collection returns one usage payload per account. They collapse into a
+        // single provider row whose `accounts` array carries every account, so a remote client
+        // renders the same multi-account list the serving Mac can render locally.
+        let providers = self.groupedByProvider(usagePayloads).enumerated().map { index, group in
             var rowClaudeSwap: DashboardClaudeSwapInput?
             // Provider-specific by design: claude-swap account data belongs only on the first Claude row.
-            if !attachedClaudeSwap, UsageProvider(rawValue: payload.provider) == .claude {
+            if !attachedClaudeSwap, UsageProvider(rawValue: group.id) == .claude {
                 rowClaudeSwap = claudeSwap
                 attachedClaudeSwap = true
             }
             let presentation = self.providerPresentation(
-                id: payload.provider,
+                id: group.id,
                 config: config,
                 fallbackSortKey: 10000 + index)
+            let activeAccountKey = activeAccountKeys[group.id]
+            let rowPayload = group.payloads.first { payload in
+                activeAccountKey != nil && payload.cacheAccountKey == activeAccountKey
+            } ?? group.payloads[0]
             return self.makeProvider(
-                payload: payload,
-                cost: costByProvider[payload.provider],
+                payload: rowPayload,
+                cost: costByProvider[group.id],
                 presentation: presentation,
                 identityMode: identityMode,
                 generatedAt: generatedAt,
+                accountPayloads: group.payloads,
+                activeAccountKey: activeAccountKey,
                 claudeSwap: rowClaudeSwap)
         }
 
@@ -106,6 +116,26 @@ enum DashboardSnapshotBuilder {
             providers: rows)
     }
 
+    private struct ProviderPayloadGroup {
+        let id: String
+        var payloads: [ProviderPayload]
+    }
+
+    /// Groups usage payloads by provider id while preserving first-seen order.
+    private static func groupedByProvider(_ payloads: [ProviderPayload]) -> [ProviderPayloadGroup] {
+        var groups: [ProviderPayloadGroup] = []
+        var indexByID: [String: Int] = [:]
+        for payload in payloads {
+            if let index = indexByID[payload.provider] {
+                groups[index].payloads.append(payload)
+            } else {
+                indexByID[payload.provider] = groups.count
+                groups.append(ProviderPayloadGroup(id: payload.provider, payloads: [payload]))
+            }
+        }
+        return groups
+    }
+
     // swiftlint:disable:next function_parameter_count
     private static func makeProvider(
         payload: ProviderPayload,
@@ -113,6 +143,8 @@ enum DashboardSnapshotBuilder {
         presentation: ProviderPresentation,
         identityMode: DashboardIdentityMode,
         generatedAt: Date,
+        accountPayloads: [ProviderPayload],
+        activeAccountKey: String?,
         claudeSwap: DashboardClaudeSwapInput?) -> DashboardProviderPayload
     {
         let provider = UsageProvider(rawValue: payload.provider)
@@ -120,7 +152,7 @@ enum DashboardSnapshotBuilder {
         let metadata = descriptor?.metadata
 
         let error = payload.error ?? cost?.error
-        let accounts = claudeSwap?.adapterError == nil
+        let claudeSwapAccounts = claudeSwap?.adapterError == nil
             ? claudeSwap?.accounts?.map { account in
                 self.makeClaudeSwapAccount(
                     account,
@@ -129,6 +161,14 @@ enum DashboardSnapshotBuilder {
                     generatedAt: generatedAt)
             }
             : nil
+        // claude-swap owns Claude's account list when the adapter answered; otherwise the
+        // enumerated usage payloads are the account list for any multi-account provider.
+        let accounts = claudeSwapAccounts ?? self.makeUsageAccounts(
+            payloads: accountPayloads,
+            provider: provider,
+            metadata: metadata,
+            identityMode: identityMode,
+            activeAccountKey: activeAccountKey)
         return DashboardProviderPayload(
             id: presentation.id,
             name: presentation.name,
@@ -148,6 +188,52 @@ enum DashboardSnapshotBuilder {
                 generatedAt: generatedAt),
             accounts: accounts,
             accountsError: claudeSwap?.adapterError)
+    }
+
+    /// Projects enumerated per-account usage payloads into dashboard account entries.
+    /// A single payload stays row-only: the provider row already carries it, and an
+    /// account list of one would turn every single-account provider into a list.
+    private static func makeUsageAccounts(
+        payloads: [ProviderPayload],
+        provider: UsageProvider?,
+        metadata: ProviderMetadata?,
+        identityMode: DashboardIdentityMode,
+        activeAccountKey: String?) -> [DashboardAccountPayload]?
+    {
+        guard payloads.count > 1 else { return nil }
+        return payloads.enumerated().map { index, payload in
+            let identity = self.makeIdentity(provider: provider, usage: payload.usage, mode: identityMode)
+            let isActive = activeAccountKey.map { $0 == payload.cacheAccountKey } ?? (index == 0)
+            return DashboardAccountPayload(
+                id: payload.cacheAccountKey ?? "account-\(index + 1)",
+                label: self.usageAccountLabel(
+                    payload: payload,
+                    identity: identity,
+                    index: index,
+                    identityMode: identityMode),
+                active: isActive,
+                identity: identity,
+                windows: self.makeWindows(provider: provider, metadata: metadata, usage: payload.usage),
+                pace: payload.pace,
+                error: payload.error?.message,
+                updatedAt: payload.usage?.updatedAt)
+        }
+    }
+
+    private static func usageAccountLabel(
+        payload: ProviderPayload,
+        identity: DashboardIdentityPayload?,
+        index: Int,
+        identityMode: DashboardIdentityMode) -> String
+    {
+        let accountLabel = payload.account?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !accountLabel.isEmpty {
+            return self.redactEmailShapedText(accountLabel, mode: identityMode)
+        }
+        if let email = identity?.accountEmail, !email.isEmpty {
+            return email
+        }
+        return "Account \(index + 1)"
     }
 
     private static func providerPresentation(

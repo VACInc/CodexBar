@@ -675,7 +675,12 @@ extension StatusItemController {
 
     private func addMenuCards(to menu: NSMenu, context: MenuCardContext, captureMenu: NSMenu? = nil) -> Bool {
         let fleetProjection = self.fleetAccountProjection(for: context.currentProvider)
-        if self.addFleetFallback(fleetProjection, to: menu, context: context) {
+        if self.addFleetFallback(
+            fleetProjection,
+            to: menu,
+            captureMenu: captureMenu ?? menu,
+            context: context)
+        {
             return false
         }
 

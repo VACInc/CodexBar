@@ -194,15 +194,25 @@ The snapshot is a stable display contract, not a raw dump of provider internals.
 }
 ```
 
-### Multi-account providers (claude-swap)
+### Multi-account providers
 
-When the claude-swap integration is enabled, the Claude provider row additionally includes an `accounts` array. This
-is an additive schema-v1 extension: other provider rows and Claude rows without the integration keep their existing
-shape. An account's `label` is its email when known and otherwise falls back to its slot label; `identity` is present
-whenever claude-swap reports an email, independently of whether that account's usage fetch succeeds. Both fields follow
-the dashboard identity mode: full by default, or redacted with `--identity redacted`.
-A failure limited to one account stays in that account's `error`; a failure of the whole adapter sets `accountsError`
-while leaving the ambient Claude row intact.
+A provider row includes an `accounts` array whenever the serving CodexBar knows more than one account for it. This is
+an additive schema-v1 extension: single-account rows keep their existing shape and never emit a one-entry list.
+Two sources fill it.
+
+- claude-swap: when the integration is enabled it owns the Claude row's account list, including accounts whose usage
+  fetch failed.
+- Any provider with multiple configured token accounts, and Codex with multiple visible accounts: the snapshot
+  collects usage for every account and folds them into one provider row whose `accounts` array carries them all. The
+  row's own `identity`, `windows`, and `pace` stay those of the active account, so a client that ignores `accounts`
+  still sees what the serving Mac shows first.
+
+The entry marked `"active": true` is the account selected on the serving Mac. An account's `label` is its email when
+known and otherwise falls back to its account or slot label, such as `Account 2`; `identity` is present whenever the
+source reports an email, independently of whether that account's usage fetch succeeds. Both fields follow the
+dashboard identity mode: full by default, or redacted with `--identity redacted`.
+A failure limited to one account stays in that account's `error`; a failure of the whole claude-swap adapter sets
+`accountsError` while leaving the ambient Claude row intact.
 
 ```json
 {
@@ -267,13 +277,14 @@ while leaving the ambient Claude row intact.
 - `providers[].display`: UI hints for ordering and coloring.
 - `providers[].error`: Provider error payload when the latest fetch failed.
 - `providers[].updatedAt`: Best-known update timestamp for the provider row.
-- `providers[].accounts`: Ordered local multi-account entries when an integration supplies them; an enabled source
-  with no accounts emits `[]`.
-  - `id`: Stable source and slot identifier, such as `claude-swap:2`.
-  - `label`: Account email when known, otherwise a slot label such as `Account 2`; email labels follow the dashboard
-    identity mode.
+- `providers[].accounts`: Ordered local multi-account entries when the provider has more than one account, or when
+  claude-swap supplies them; an enabled claude-swap source with no accounts emits `[]`. Absent for single-account
+  providers.
+  - `id`: Stable source and slot identifier, such as `claude-swap:2`, or the provider's account cache key.
+  - `label`: Account email when known, otherwise an account or slot label such as `Account 2`; email labels follow
+    the dashboard identity mode.
   - `active`: Whether this is the source's active account.
-  - `identity`: Account email with a `null` plan whenever claude-swap reports one, even if usage fetching fails;
+  - `identity`: Account email with a `null` plan whenever the source reports one, even if usage fetching fails;
     otherwise `null`. The email local part is hidden only in redacted mode.
   - `windows`: Account-local session, weekly, and scoped windows in the same shape as `providers[].windows`.
   - `pace`: Account-local primary, secondary, and tertiary pace values when computable. Each pace value contains

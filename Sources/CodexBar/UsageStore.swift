@@ -174,6 +174,7 @@ final class UsageStore {
     var remoteCodexBarSnapshots: [AccountSnapshotSyncPayload] = []
     var remoteCodexBarProviderIDs: [ProviderInstanceID] = []
     var remoteCodexBarPrimarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+    var remoteCodexBarActiveAccountKeys: [ProviderInstanceID: String] = [:]
     var remoteCodexBarError: String?
     var remoteCodexBarRefreshInFlight = false
     @ObservationIgnored var remoteCodexBarSnapshotConfigurationID: String?

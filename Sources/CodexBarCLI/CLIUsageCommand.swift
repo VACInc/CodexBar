@@ -34,6 +34,10 @@ struct UsageCommandOutput {
     var payload: [ProviderPayload] = []
     var cards: [CLICardModel] = []
     var cardFailures: [CLICardFailure] = []
+    /// Cache account key of the locally selected account, by provider raw value.
+    /// Only populated when a provider enumerated more than one account, so
+    /// multi-account consumers can mark the active entry.
+    var activeAccountKeys: [String: String] = [:]
     var exitCode: ExitCode = .success
 }
 
@@ -60,6 +64,7 @@ extension UsageCommandOutput {
         self.payload.append(contentsOf: other.payload)
         self.cards.append(contentsOf: other.cards)
         self.cardFailures.append(contentsOf: other.cardFailures)
+        self.activeAccountKeys.merge(other.activeAccountKeys) { current, _ in current }
         if other.exitCode != .success {
             self.exitCode = other.exitCode
         }
@@ -290,7 +295,18 @@ extension CodexBarCLI {
         // Provider-specific by design: Codex can enumerate reconciled live, managed, and profile-home accounts.
         if provider == .codex, command.includeAllCodexAccounts {
             var output = UsageCommandOutput()
-            let accounts = tokenContext.visibleCodexAccounts().visibleAccounts
+            let projection = tokenContext.visibleCodexAccounts()
+            let accounts = projection.visibleAccounts
+            if accounts.count > 1,
+               let active = accounts.first(where: { $0.id == projection.activeVisibleAccountID })
+                   ?? accounts.first(where: \.isActive),
+               let activeKey = Self.usageCacheAccountKey(
+                   provider: provider,
+                   account: nil,
+                   codexVisibleAccount: active)
+            {
+                output.activeAccountKeys[provider.rawValue] = activeKey
+            }
             let selections: [CodexVisibleAccount?] = accounts.isEmpty ? [nil] : accounts.map { Optional($0) }
             for visibleAccount in selections {
                 let result = await Self.fetchUsageOutput(
@@ -318,6 +334,16 @@ extension CodexBarCLI {
 
         let selections = Self.accountSelections(from: accounts)
         var output = UsageCommandOutput()
+        if accounts.count > 1,
+           let data = tokenContext.accountsByProvider[provider],
+           !data.accounts.isEmpty,
+           let activeKey = Self.usageCacheAccountKey(
+               provider: provider,
+               account: data.accounts[data.clampedActiveIndex()],
+               codexVisibleAccount: nil)
+        {
+            output.activeAccountKeys[provider.rawValue] = activeKey
+        }
         let accountRefreshDelay = TokenAccountSupportCatalog
             .support(for: provider)?.minimumDelayBetweenAccountRefreshes
         for (index, account) in selections.enumerated() {

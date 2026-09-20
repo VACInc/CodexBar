@@ -52,12 +52,17 @@ public enum AccountMenuLayoutPlanner {
         public let usesCompactLayout: Bool
     }
 
+    /// - Parameter minimumCompactAccountCount: Row count at which the compact
+    ///   layout engages. Callers that present one account up front and the rest
+    ///   as a switchable list (the segmented layout) lower it; it never drops
+    ///   below two, because a single account is just a card.
     public static func plan(
         accounts: [ProviderAccountUsageSnapshot],
         expandedAccountIDs: Set<ProviderAccountIdentity> = [],
-        healthyTailExpanded: Bool = false) -> Plan
+        healthyTailExpanded: Bool = false,
+        minimumCompactAccountCount: Int = Self.compactLayoutMinimumAccountCount) -> Plan
     {
-        guard accounts.count >= self.compactLayoutMinimumAccountCount else {
+        guard accounts.count >= max(2, minimumCompactAccountCount) else {
             return Plan(rows: accounts.map { .card($0.id) }, usesCompactLayout: false)
         }
 

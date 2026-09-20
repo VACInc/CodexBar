@@ -90,6 +90,7 @@ struct DashboardSnapshotProducer: Sendable {
             generatedAt: generatedAt,
             refreshInterval: refreshInterval,
             codexBarVersion: codexBarVersion,
+            activeAccountKeys: usageOutput.activeAccountKeys,
             claudeSwap: claudeSwap.map {
                 DashboardClaudeSwapInput(
                     accounts: $0.accounts,
@@ -215,7 +216,8 @@ extension CodexBarCLI {
                     startedAt: startedAt,
                     requestTimeout: timeout),
                 providerOperations: providerOperations,
-                includeAllCodexAccounts: false,
+                includeAllCodexAccounts: true,
+                includeAllTokenAccounts: true,
                 persistCLISessions: false),
             costCollection: ServeCostCollectionContext(
                 configFingerprint: configSnapshot.cacheToken,

@@ -381,6 +381,9 @@ struct RemoteCodexBarProjection: Sendable {
     let snapshots: [AccountSnapshotSyncPayload]
     let providerIDs: [ProviderInstanceID]
     let primarySnapshots: [ProviderInstanceID: UsageSnapshot]
+    /// Account key of the remote account the serving Mac has selected, per provider.
+    /// Menus mark it active so a remote account list matches the local presentation.
+    let activeAccountKeys: [ProviderInstanceID: String]
 
     static func make(
         snapshot: RemoteCodexBarSnapshot,
@@ -390,6 +393,7 @@ struct RemoteCodexBarProjection: Sendable {
         var projected: [AccountSnapshotSyncPayload] = []
         var providerIDs: [ProviderInstanceID] = []
         var primarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+        var activeAccountKeys: [ProviderInstanceID: String] = [:]
         for row in snapshot.providers where row.enabled {
             guard let provider = UsageProvider(rawValue: row.id) else { continue }
             providerIDs.append(provider.instanceID)
@@ -442,7 +446,7 @@ struct RemoteCodexBarProjection: Sendable {
                     error: account.error,
                     updatedAt: account.updatedAt ?? row.updatedAt ?? snapshot.generatedAt)
                 else { continue }
-                projected.append(AccountSnapshotSyncPayload(
+                let payload = AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
                     deviceID: "remote-codexbar",
                     accountIdentity: self.accountIdentity(
@@ -451,13 +455,18 @@ struct RemoteCodexBarProjection: Sendable {
                         providerID: row.id,
                         serverIdentity: serverIdentity),
                     displayLabel: account.label,
-                    usage: usage))
+                    usage: usage)
+                if account.active, activeAccountKeys[provider.instanceID] == nil {
+                    activeAccountKeys[provider.instanceID] = payload.accountKey
+                }
+                projected.append(payload)
             }
         }
         return Self(
             snapshots: projected,
             providerIDs: providerIDs,
-            primarySnapshots: primarySnapshots)
+            primarySnapshots: primarySnapshots,
+            activeAccountKeys: activeAccountKeys)
     }
 
     private static func accountIdentity(

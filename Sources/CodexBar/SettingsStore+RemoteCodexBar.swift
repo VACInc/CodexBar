@@ -96,6 +96,8 @@ extension SettingsStore {
         self.remoteCodexBarBearerTokenStorage = normalizedToken
         self.remoteCodexBarAllowsPlainHTTPStorage = storesPlainHTTPConsent
         self.userDefaults.set(normalizedURL, forKey: "remoteCodexBarServerURL")
+        self.userDefaults.set(storesPlainHTTPConsent, forKey: "remoteCodexBarAllowsPlainHTTP")
+        self.remoteCodexBarTokenNeedsAuthorization = false
         if credential == nil {
             self.remoteCodexBarRemoteOnlyEnabled = false
         }
@@ -107,27 +109,61 @@ extension SettingsStore {
     }
 
     func retryRemoteCodexBarTokenLoadIfNeeded() {
-        guard self.remoteCodexBarTokenLoadNeedsRetry else { return }
-        guard !KeychainAccessGate.isExplicitlyDisabled else { return }
-        do {
-            if let credential = try self.remoteCodexBarTokenStore.loadCredential() {
-                self.remoteCodexBarServerURLStorage = credential.serverURL
-                self.remoteCodexBarBearerTokenStorage = credential.bearerToken
-                self.remoteCodexBarAllowsPlainHTTPStorage = credential.allowsPlainHTTP
-                self.userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
-            } else {
-                self.remoteCodexBarBearerTokenStorage = ""
-                self.remoteCodexBarAllowsPlainHTTPStorage = false
+        if self.remoteCodexBarTokenLoadNeedsRetry {
+            guard !KeychainAccessGate.isExplicitlyDisabled else { return }
+            do {
+                try self.applyRecoveredRemoteCodexBarCredential(
+                    self.remoteCodexBarTokenStore.loadCredential())
+            } catch {
+                self.remoteCodexBarSecretError = error.localizedDescription
+                self.remoteCodexBarTokenLoadNeedsRetry =
+                    error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable
+                self.remoteCodexBarTokenNeedsAuthorization =
+                    error as? RemoteCodexBarTokenStoreError == .interactionRequired
             }
-            self.remoteCodexBarSecretError = nil
-            self.remoteCodexBarTokenLoadNeedsRetry = false
-            self.remoteCodexBarConfigurationRevision &+= 1
-            self.noteBackgroundWorkSettingsChanged()
+            return
+        }
+        // Recovery presents a system prompt, so attempt it once per launch and leave any further
+        // attempt to the explicit control in Preferences.
+        guard self.remoteCodexBarTokenNeedsAuthorization,
+              !self.remoteCodexBarTokenAuthorizationAttempted
+        else { return }
+        self.authorizeRemoteCodexBarTokenAccess()
+    }
+
+    /// Re-reads the saved credential with Keychain UI allowed. A new build's code signature is not on the
+    /// existing item's access-control list, so without this the saved token stays unreadable and the user
+    /// has to retype it after every update.
+    func authorizeRemoteCodexBarTokenAccess() {
+        guard !KeychainAccessGate.isExplicitlyDisabled else { return }
+        self.remoteCodexBarTokenAuthorizationAttempted = true
+        do {
+            let credential = try self.remoteCodexBarTokenStore.loadCredentialAllowingInteraction()
+            self.applyRecoveredRemoteCodexBarCredential(credential)
+            self.remoteCodexBarTokenNeedsAuthorization = false
         } catch {
             self.remoteCodexBarSecretError = error.localizedDescription
             self.remoteCodexBarTokenLoadNeedsRetry =
                 error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable
         }
+    }
+
+    private func applyRecoveredRemoteCodexBarCredential(_ credential: RemoteCodexBarStoredCredential?) {
+        if let credential {
+            self.remoteCodexBarServerURLStorage = credential.serverURL
+            self.remoteCodexBarBearerTokenStorage = credential.bearerToken
+            self.remoteCodexBarAllowsPlainHTTPStorage = credential.allowsPlainHTTP
+            self.userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
+            self.userDefaults.set(credential.allowsPlainHTTP, forKey: "remoteCodexBarAllowsPlainHTTP")
+        } else {
+            self.remoteCodexBarBearerTokenStorage = ""
+            self.remoteCodexBarAllowsPlainHTTPStorage = false
+        }
+        self.remoteCodexBarSecretError = nil
+        self.remoteCodexBarTokenLoadNeedsRetry = false
+        self.remoteCodexBarTokenNeedsAuthorization = false
+        self.remoteCodexBarConfigurationRevision &+= 1
+        self.noteBackgroundWorkSettingsChanged()
     }
 
     var remoteCodexBarConfiguration: RemoteCodexBarConfiguration? {

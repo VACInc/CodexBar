@@ -299,7 +299,7 @@ extension CodexBarCLI {
             let accounts = projection.visibleAccounts
             if accounts.count > 1,
                let active = accounts.first(where: { $0.id == projection.activeVisibleAccountID })
-                   ?? accounts.first(where: \.isActive),
+               ?? accounts.first(where: \.isActive),
                let activeKey = Self.usageCacheAccountKey(
                    provider: provider,
                    account: nil,

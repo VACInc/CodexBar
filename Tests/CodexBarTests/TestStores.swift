@@ -226,6 +226,38 @@ final class FailingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchec
     }
 }
 
+/// Mirrors a Keychain item whose access-control list rejects the current binary: silent reads fail with
+/// `.interactionRequired` until an interactive read authorizes and re-owns the record.
+final class AuthorizationRequiringRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var isAuthorized = false
+    var denyInteraction = false
+    var loadAttempts = 0
+    var interactiveLoadAttempts = 0
+
+    init(value: RemoteCodexBarStoredCredential?) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.loadAttempts += 1
+        guard self.isAuthorized else { throw RemoteCodexBarTokenStoreError.interactionRequired }
+        return self.value
+    }
+
+    func loadCredentialAllowingInteraction() throws -> RemoteCodexBarStoredCredential? {
+        self.interactiveLoadAttempts += 1
+        guard !self.denyInteraction else { throw RemoteCodexBarTokenStoreError.interactionRequired }
+        self.isAuthorized = true
+        return self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+        self.isAuthorized = true
+    }
+}
+
 final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
     var value: RemoteCodexBarStoredCredential?
     var loadAttempts = 0

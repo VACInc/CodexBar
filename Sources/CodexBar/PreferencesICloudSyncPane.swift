@@ -98,6 +98,14 @@ struct ICloudSyncPane: View {
                     isOn: self.remoteOnlyBinding)
                     .toggleStyle(.checkbox)
                     .disabled(self.settings.remoteCodexBarConfiguration == nil)
+
+                if self.settings.remoteCodexBarTokenNeedsAuthorization {
+                    Button("Unlock Saved Token") {
+                        self.settings.authorizeRemoteCodexBarTokenAccess()
+                        self.remoteCodexBarServerURLDraft = self.settings.remoteCodexBarServerURL
+                        self.remoteCodexBarBearerTokenDraft = self.settings.remoteCodexBarBearerToken
+                    }
+                }
             } header: {
                 Text("Remote CodexBar")
             } footer: {

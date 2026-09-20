@@ -277,6 +277,10 @@ final class SettingsStore {
     var remoteCodexBarAllowsPlainHTTPStorage: Bool
     var remoteCodexBarSecretError: String?
     @ObservationIgnored var remoteCodexBarTokenLoadNeedsRetry: Bool
+    /// The saved credential exists but this binary is missing from its Keychain ACL. Recovery needs a
+    /// user-visible prompt, so it is attempted at most once per launch and can also be triggered manually.
+    var remoteCodexBarTokenNeedsAuthorization: Bool = false
+    @ObservationIgnored var remoteCodexBarTokenAuthorizationAttempted = false
     var remoteCodexBarConfigurationRevision: Int = 0
     var configRevision: Int = 0
     var providerDetailSettingsRevision: Int = 0
@@ -418,14 +422,20 @@ final class SettingsStore {
             self.remoteCodexBarTokenLoadNeedsRetry = KeychainAccessGate.isExplicitlyDisabled
             if let credential {
                 userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
+                userDefaults.set(credential.allowsPlainHTTP, forKey: "remoteCodexBarAllowsPlainHTTP")
             }
         } catch {
             self.remoteCodexBarServerURLStorage = remoteCodexBarServerURLDraft
             self.remoteCodexBarBearerTokenStorage = ""
-            self.remoteCodexBarAllowsPlainHTTPStorage = false
+            // Mirrored separately so the plain-HTTP consent survives a Keychain read failure the same
+            // way the endpoint does, instead of silently reverting to HTTPS-only.
+            self.remoteCodexBarAllowsPlainHTTPStorage = userDefaults.bool(
+                forKey: "remoteCodexBarAllowsPlainHTTP")
             self.remoteCodexBarSecretError = error.localizedDescription
             self.remoteCodexBarTokenLoadNeedsRetry =
                 error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable
+            self.remoteCodexBarTokenNeedsAuthorization =
+                error as? RemoteCodexBarTokenStoreError == .interactionRequired
         }
         self.mergedMenuLastSelectedWasOverviewStorage = defaultsState.mergedMenuLastSelectedWasOverview
         self.selectedMenuProviderRawStorage = defaultsState.selectedMenuProviderRaw

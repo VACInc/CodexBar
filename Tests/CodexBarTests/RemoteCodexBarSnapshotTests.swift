@@ -573,6 +573,67 @@ struct RemoteCodexBarSnapshotTests {
 
     @MainActor
     @Test
+    func `a rebuilt binary recovers the saved token through one authorization prompt`() throws {
+        let tokens = AuthorizationRequiringRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "http://192.168.1.2:8765",
+            bearerToken: "saved-token",
+            allowsPlainHTTP: true))
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-token-authorization",
+            remoteCodexBarTokenStore: tokens,
+            prepareDefaults: {
+                $0.set("http://192.168.1.2:8765", forKey: "remoteCodexBarServerURL")
+                $0.set(true, forKey: "remoteCodexBarAllowsPlainHTTP")
+            })
+        // The silent read fails, so the token is blank, but the endpoint and the plain-HTTP consent
+        // still survive from their UserDefaults mirrors.
+        #expect(settings.remoteCodexBarBearerToken.isEmpty)
+        #expect(settings.remoteCodexBarTokenNeedsAuthorization)
+        #expect(settings.remoteCodexBarServerURL == "http://192.168.1.2:8765")
+        #expect(settings.remoteCodexBarAllowsPlainHTTP)
+        #expect(tokens.interactiveLoadAttempts == 0)
+
+        settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        #expect(tokens.interactiveLoadAttempts == 1)
+        #expect(settings.remoteCodexBarBearerToken == "saved-token")
+        #expect(settings.remoteCodexBarAllowsPlainHTTP)
+        #expect(settings.remoteCodexBarSecretError == nil)
+        #expect(!settings.remoteCodexBarTokenNeedsAuthorization)
+        #expect(settings.remoteCodexBarConfiguration != nil)
+
+        // The store now accepts silent reads, so a later launch of the same binary needs no prompt.
+        #expect(try tokens.loadCredential()?.bearerToken == "saved-token")
+    }
+
+    @MainActor
+    @Test
+    func `a declined authorization prompt is not repeated during the same launch`() {
+        let tokens = AuthorizationRequiringRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+            serverURL: "https://saved.example.com",
+            bearerToken: "saved-token",
+            allowsPlainHTTP: false))
+        tokens.denyInteraction = true
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-token-authorization-declined",
+            remoteCodexBarTokenStore: tokens)
+        #expect(settings.remoteCodexBarTokenNeedsAuthorization)
+
+        settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        settings.retryRemoteCodexBarTokenLoadIfNeeded()
+        #expect(tokens.interactiveLoadAttempts == 1)
+        #expect(settings.remoteCodexBarBearerToken.isEmpty)
+        // The explicit Preferences control stays available after an automatic attempt is declined.
+        #expect(settings.remoteCodexBarTokenNeedsAuthorization)
+
+        tokens.denyInteraction = false
+        settings.authorizeRemoteCodexBarTokenAccess()
+        #expect(settings.remoteCodexBarBearerToken == "saved-token")
+        #expect(!settings.remoteCodexBarTokenNeedsAuthorization)
+    }
+
+    @MainActor
+    @Test
     func `re-enabling Keychain access reloads the saved remote credential`() {
         let previousOverride = KeychainAccessGate.currentOverrideForTesting
         defer {

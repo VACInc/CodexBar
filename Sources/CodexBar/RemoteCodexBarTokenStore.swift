@@ -10,7 +10,19 @@ struct RemoteCodexBarStoredCredential: Codable, Equatable, Sendable {
 
 protocol RemoteCodexBarTokenStoring: Sendable {
     func loadCredential() throws -> RemoteCodexBarStoredCredential?
+
+    /// Reads the credential with Keychain UI allowed, then re-owns the item so later launches of the
+    /// same binary read it silently. Only call this in response to `RemoteCodexBarTokenStoreError
+    /// .interactionRequired`, because it can present a system authorization prompt.
+    func loadCredentialAllowingInteraction() throws -> RemoteCodexBarStoredCredential?
+
     func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws
+}
+
+extension RemoteCodexBarTokenStoring {
+    func loadCredentialAllowingInteraction() throws -> RemoteCodexBarStoredCredential? {
+        try self.loadCredential()
+    }
 }
 
 struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
@@ -38,22 +50,52 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
             break
         case .notFound:
             return try self.migrateLegacyCredential()
-        case .interactionRequired, .temporarilyUnavailable:
+        case .interactionRequired:
+            // The item exists but this binary is not on its access-control list. Ad-hoc preview builds
+            // hit this on every rebuild because their designated requirement is the changing cdhash.
+            // Recovery needs a user-visible prompt, so keep it distinct from a transient failure.
+            throw RemoteCodexBarTokenStoreError.interactionRequired
+        case .temporarilyUnavailable:
             throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
         case let .failure(status):
             throw Self.readError(for: OSStatus(status))
         }
 
-        var result: CFTypeRef?
         var query = self.baseQuery
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnData as String] = true
         KeychainNoUIQuery.apply(to: &query)
+        switch try self.copyCredential(query: query) {
+        case .none:
+            return try self.migrateLegacyCredential()
+        case let .some(credential):
+            return credential
+        }
+    }
 
-        let status = KeychainSecurity.copyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
+    func loadCredentialAllowingInteraction() throws -> RemoteCodexBarStoredCredential? {
+        guard !KeychainAccessGate.isDisabled else {
+            throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
+        }
+        var query = self.baseQuery
+        query[kSecUseOperationPrompt as String] = String(
+            localized: "CodexBar needs access to its saved sync token.")
+        guard let credential = try self.copyCredential(query: query) else {
             return try self.migrateLegacyCredential()
         }
+        // Re-own the item under this binary's identity so the next launch reads it without a prompt.
+        // A failure here only costs another prompt later, so it must not discard a recovered token.
+        try? self.reown(credential)
+        return credential
+    }
+
+    /// Returns `nil` when the item is absent; the caller decides whether to fall back to migration.
+    private func copyCredential(query: [String: Any]) throws -> RemoteCodexBarStoredCredential? {
+        var result: CFTypeRef?
+        var query = query
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecReturnData as String] = true
+
+        let status = KeychainSecurity.copyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw Self.readError(for: status) }
         guard let data = result as? Data,
               let credential = try? JSONDecoder().decode(RemoteCodexBarStoredCredential.self, from: data)
@@ -66,6 +108,24 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
             serverURL: credential.serverURL.trimmingCharacters(in: .whitespacesAndNewlines),
             bearerToken: token,
             allowsPlainHTTP: credential.allowsPlainHTTP)
+    }
+
+    /// Deletes and re-adds the item. Deletion does not decrypt the payload, so it succeeds without the
+    /// decrypt ACL the current binary is missing, and the fresh record is owned by this binary.
+    private func reown(_ credential: RemoteCodexBarStoredCredential) throws {
+        var deleteQuery = self.baseQuery
+        KeychainNoUIQuery.apply(to: &deleteQuery)
+        let deleteStatus = KeychainSecurity.delete(deleteQuery as CFDictionary)
+        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+            throw RemoteCodexBarTokenStoreError.writeFailed
+        }
+        var query = self.baseQuery
+        KeychainNoUIQuery.apply(to: &query)
+        query[kSecValueData as String] = try JSONEncoder().encode(credential)
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard KeychainSecurity.add(query as CFDictionary, nil) == errSecSuccess else {
+            throw RemoteCodexBarTokenStoreError.writeFailed
+        }
     }
 
     func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
@@ -98,7 +158,12 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
             guard KeychainSecurity.add(query as CFDictionary, nil) == errSecSuccess else {
                 throw RemoteCodexBarTokenStoreError.writeFailed
             }
-        case .interactionRequired, .temporarilyUnavailable, .failure:
+        case .interactionRequired:
+            // An existing record this binary cannot decrypt still blocks `update`. Replacing it needs no
+            // decrypt access and leaves the new record owned by this binary, so saving succeeds without
+            // a prompt instead of dropping the user into session-only mode on every ad-hoc rebuild.
+            try self.reown(storedCredential)
+        case .temporarilyUnavailable, .failure:
             throw RemoteCodexBarTokenStoreError.writeFailed
         }
         _ = KeychainCacheStore.clearResult(key: Self.legacyCacheKey)
@@ -153,12 +218,15 @@ struct KeychainRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring {
 
 enum RemoteCodexBarTokenStoreError: LocalizedError, Equatable {
     case invalidData
+    case interactionRequired
     case temporarilyUnavailable
     case writeFailed
 
     var errorDescription: String? {
         switch self {
         case .invalidData: "The saved remote CodexBar token is invalid."
+        case .interactionRequired:
+            "The saved remote CodexBar token needs your permission before this build can read it."
         case .temporarilyUnavailable: "The saved remote CodexBar token is temporarily unavailable."
         case .writeFailed: "The remote CodexBar token could not be saved securely."
         }

@@ -11,7 +11,7 @@ struct InlineUsageDashboardModel: Equatable {
     struct Point: Equatable, Identifiable {
         let id: String
         let label: String
-        let value: Double?
+        let value: Double
         let accessibilityValue: String
     }
 
@@ -102,8 +102,7 @@ extension UsageMenuCardView.Model {
                 provider: input.provider,
                 snapshot: tokenSnapshot,
                 comparisonPeriodsEnabled: input.costComparisonPeriodsEnabled,
-                preferredCurrencyCode: input.preferredCurrencyCode,
-                calendar: input.costUsageBucketCalendar)
+                preferredCurrencyCode: input.preferredCurrencyCode)
         }
         if menuCard.supportsInlineTokenCostDashboard,
            input.costSummaryInlineEnabled,
@@ -114,8 +113,7 @@ extension UsageMenuCardView.Model {
                 provider: input.provider,
                 snapshot: tokenSnapshot,
                 comparisonPeriodsEnabled: input.costComparisonPeriodsEnabled,
-                preferredCurrencyCode: input.preferredCurrencyCode,
-                calendar: input.costUsageBucketCalendar)
+                preferredCurrencyCode: input.preferredCurrencyCode)
         }
         return nil
     }
@@ -135,8 +133,7 @@ extension UsageMenuCardView.Model {
         provider: UsageProvider,
         snapshot: CostUsageTokenSnapshot,
         comparisonPeriodsEnabled: Bool,
-        preferredCurrencyCode: String,
-        calendar: Calendar) -> InlineUsageDashboardModel
+        preferredCurrencyCode: String) -> InlineUsageDashboardModel
     {
         let displayCurrencyCode = UsageFormatter.convertedCost(
             0,
@@ -189,18 +186,14 @@ extension UsageMenuCardView.Model {
         } else {
             L("%@ cost", historyDays == 1 ? L("Today") : String(format: L("Last %d days"), historyDays))
         }
-        let points = Self.inlineCostHistoryDays(
-            snapshot: snapshot,
-            historyDays: historyDays,
-            preservesCalendarDays: tokenCost.preservesCalendarDaysInCharts,
-            calendar: calendar)
-            .map { day in
-                InlineUsageDashboardModel.Point(
-                    id: day.date,
-                    label: Self.shortDayLabel(day.date),
-                    value: day.costUSD.map(convertedValue),
-                    accessibilityValue: "\(day.date): \(day.costUSD.map(convertedString) ?? L("Unknown"))")
-            }
+        let points = snapshot.daily.suffix(historyDays).compactMap { entry -> InlineUsageDashboardModel.Point? in
+            guard let cost = entry.costUSD else { return nil }
+            return InlineUsageDashboardModel.Point(
+                id: entry.date,
+                label: Self.shortDayLabel(entry.date),
+                value: convertedValue(cost),
+                accessibilityValue: "\(entry.date): \(convertedString(cost))")
+        }
         let latest = CostUsageTokenSnapshot.latestEntry(in: snapshot.daily)
         let usesLatestPrimary = tokenCost.primaryValue == .latestDaily
         let primaryCostUSD = usesLatestPrimary ? latest?.costUSD : snapshot.sessionCostUSD
@@ -341,47 +334,6 @@ extension UsageMenuCardView.Model {
         return "\(rawDay)"
     }
 
-    private static func inlineCostHistoryDays(
-        snapshot: CostUsageTokenSnapshot,
-        historyDays: Int,
-        preservesCalendarDays: Bool,
-        calendar sourceCalendar: Calendar)
-        -> [(date: String, costUSD: Double?)]
-    {
-        let existingDays = snapshot.daily.suffix(historyDays).compactMap { entry -> (String, Double?)? in
-            guard let cost = entry.costUSD else { return nil }
-            return (entry.date, cost)
-        }
-        guard preservesCalendarDays else { return existingDays }
-
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = sourceCalendar.timeZone
-        let endDate = calendar.startOfDay(for: snapshot.updatedAt)
-        guard let startDate = calendar.date(byAdding: .day, value: -(historyDays - 1), to: endDate) else {
-            return existingDays
-        }
-
-        let entriesByDay = Dictionary(snapshot.daily.map { ($0.date, $0) }, uniquingKeysWith: { _, newer in newer })
-        return (0..<historyDays).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: startDate) else { return nil }
-            let dayKey = Self.inlineCostHistoryDayKey(date, calendar: calendar)
-            if let entry = entriesByDay[dayKey] {
-                return (date: dayKey, costUSD: entry.costUSD)
-            }
-            // A missing date is zero only after the scan has covered the requested history.
-            return (date: dayKey, costUSD: snapshot.historyCoverageIsEstablished ? 0 : nil)
-        }
-    }
-
-    private static func inlineCostHistoryDayKey(_ date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(
-            format: "%04d-%02d-%02d",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0)
-    }
-
     private static func shortModelName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 26 else { return trimmed }
@@ -421,7 +373,6 @@ struct InlineUsageDashboardContent: View {
             if !self.model.points.isEmpty {
                 MiniUsageBars(model: self.model)
                     .frame(height: 58)
-                    .accessibilityElement(children: .contain)
                     .accessibilityLabel(self.model.accessibilityLabel)
             }
             self.detailLines
@@ -483,7 +434,7 @@ struct InlineUsageDashboardContent: View {
         @Environment(\.menuItemHighlighted) private var isHighlighted
 
         var body: some View {
-            let scale = UsageChartScale(values: self.model.points.compactMap(\.value))
+            let scale = UsageChartScale(values: self.model.points.map(\.value))
             VStack(alignment: .trailing, spacing: 2) {
                 if let currencyCode = self.model.currencyCode, scale.maximum > 0 {
                     Text(UsageFormatter.compactCurrencyString(scale.maximum, currencyCode: currencyCode))
@@ -494,12 +445,11 @@ struct InlineUsageDashboardContent: View {
                         .allowsTightening(true)
                 }
                 GeometryReader { geometry in
-                    let layout = InlineUsageBarLayout(width: geometry.size.width, count: self.model.points.count)
-                    HStack(alignment: .bottom, spacing: layout.spacing) {
+                    HStack(alignment: .bottom, spacing: 2) {
                         ForEach(self.model.points) { point in
                             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                                 .fill(self.fill(for: point, scale: scale))
-                                .frame(width: layout.barWidth)
+                                .frame(maxWidth: .infinity)
                                 .frame(height: self.height(for: point, scale: scale, available: geometry.size.height))
                                 .accessibilityLabel(point.accessibilityValue)
                         }
@@ -519,15 +469,13 @@ struct InlineUsageDashboardContent: View {
             scale: UsageChartScale,
             available: CGFloat) -> CGFloat
         {
-            guard let value = point.value else { return 1 }
-            let ratio = scale.fraction(for: value)
+            let ratio = scale.fraction(for: point.value)
             guard ratio > 0 else { return 1 }
             return max(3, CGFloat(ratio) * available)
         }
 
         private func fill(for point: InlineUsageDashboardModel.Point, scale: UsageChartScale) -> Color {
-            guard let value = point.value else { return .clear }
-            let ratio = max(0.18, scale.fraction(for: value))
+            let ratio = max(0.18, scale.fraction(for: point.value))
             if self.isHighlighted {
                 return Color.white.opacity(0.55 + ratio * 0.35)
             }
@@ -547,17 +495,5 @@ struct InlineUsageDashboardContent: View {
                 return Color(red: 0.16, green: 0.62, blue: 0.36)
             }
         }
-    }
-}
-
-struct InlineUsageBarLayout {
-    let spacing: CGFloat
-    let barWidth: CGFloat
-
-    init(width: CGFloat, count: Int) {
-        let count = max(1, count)
-        let width = max(0, width)
-        self.spacing = count == 1 ? 0 : min(2, width / CGFloat(count) / 4)
-        self.barWidth = max(0, (width - self.spacing * CGFloat(count - 1)) / CGFloat(count))
     }
 }

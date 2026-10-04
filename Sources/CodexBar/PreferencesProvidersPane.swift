@@ -609,7 +609,6 @@ struct ProvidersPane: View {
             workDaysPerWeek: self.settings.weeklyProgressWorkDays,
             workdayTickAppearance: self.settings.workdayTickAppearance,
             paceVisible: self.settings.paceVisible,
-            costUsageBucketCalendar: self.settings.costUsageBucketCalendar,
             now: now)
         return UsageMenuCardView.Model.make(input)
     }

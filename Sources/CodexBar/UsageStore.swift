@@ -10,6 +10,9 @@ import SweetCookieKit
 extension UsageStore {
     var menuObservationToken: Int {
         _ = self.snapshots
+        _ = self.remoteCodexBarSnapshots
+        _ = self.remoteCodexBarError
+        _ = self.remoteCodexBarRefreshInFlight
         _ = self.errors
         _ = self.diagnostics
         _ = self.knownLimitsAvailabilityByProvider
@@ -166,6 +169,12 @@ final class UsageStore {
     }
 
     var snapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+    var remoteCodexBarSnapshots: [AccountSnapshotSyncPayload] = []
+    var remoteCodexBarError: String?
+    var remoteCodexBarRefreshInFlight = false
+    @ObservationIgnored var remoteCodexBarSnapshotConfigurationID: String?
+    @ObservationIgnored var remoteCodexBarRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var remoteCodexBarRefreshTaskConfigurationID: String?
     var errors: [ProviderInstanceID: String] = [:]
     var diagnostics: [ProviderInstanceID: String] = [:]
     var geminiMigrationObservation: GeminiMigrationObservation = .none
@@ -473,6 +482,7 @@ final class UsageStore {
     }
 
     @ObservationIgnored let tokenFetchTimeout: TimeInterval = 10 * 60
+    @ObservationIgnored let remoteCodexBarClient: RemoteCodexBarSnapshotClient
     @ObservationIgnored let startupBehavior: StartupBehavior
     @ObservationIgnored let planUtilizationPersistenceCoordinator: PlanUtilizationHistoryPersistenceCoordinator
 
@@ -490,6 +500,7 @@ final class UsageStore {
         startupBehavior: StartupBehavior = .automatic,
         environmentBase: [String: String] = ProcessInfo.processInfo.environment,
         widgetSnapshotURL: URL? = nil,
+        remoteCodexBarClient: RemoteCodexBarSnapshotClient = RemoteCodexBarSnapshotClient(),
         planUtilizationHistoryLoadGateForTesting: PlanUtilizationHistoryLoadGate? = nil)
     {
         self.codexFetcher = fetcher
@@ -500,6 +511,7 @@ final class UsageStore {
         self.registry = registry
         self.environmentBase = environmentBase
         self.widgetSnapshotURL = widgetSnapshotURL
+        self.remoteCodexBarClient = remoteCodexBarClient
         self.historicalUsageHistoryStore = historicalUsageHistoryStore
         self.startupBehavior = startupBehavior.resolved(isRunningTests: Self.isRunningTestsProcess())
         let planHistoryStore = Self.resolvedPlanHistoryStore(planUtilizationHistoryStore, startup: self.startupBehavior)
@@ -781,6 +793,8 @@ final class UsageStore {
                 displayEnabledProviders: enabledProviderSet,
                 availableProviders: availableRefreshProviders)
             self.scheduleStorageFootprintRefresh(for: displayEnabledProviders.compactMap(\.firstPartyProvider))
+            // Remote CodexBar is best-effort and must never hold local provider refreshes open.
+            self.scheduleRemoteCodexBarRefresh()
 
             await withTaskGroup(of: Void.self) { group in
                 for instanceID in refreshProviders {
@@ -953,6 +967,7 @@ final class UsageStore {
 
     deinit {
         self.timerTask?.cancel()
+        self.remoteCodexBarRefreshTask?.cancel()
         self.tokenRefreshSequenceTask?.cancel()
         self.codexCostCatchUpTask?.cancel()
         self.forcedRefreshEnrichmentTask?.cancel()

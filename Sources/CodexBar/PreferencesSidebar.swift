@@ -15,6 +15,7 @@ struct SettingsSidebarView: View {
             HStack(spacing: 6) {
                 SettingsSidebarSearchField(searchText: self.$searchText)
                 SettingsSidebarSortToggle(isOn: self.$settings.providersSortedAlphabetically)
+                    .disabled(self.settings.usesRemoteCodexBarProvidersOnly)
             }
             .padding(.horizontal, 8)
             .padding(.top, 16)
@@ -33,7 +34,7 @@ struct SettingsSidebarView: View {
     private var appPanesSection: some View {
         Section {
             SettingsSidebarPaneRow(pane: .general, systemImage: "gearshape.fill", color: .gray)
-            SettingsSidebarPaneRow(pane: .iCloudSync, systemImage: "icloud.fill", color: .blue)
+            SettingsSidebarPaneRow(pane: .iCloudSync, systemImage: "arrow.triangle.2.circlepath", color: .blue)
             SettingsSidebarPaneRow(pane: .usageSpend, systemImage: "chart.bar.fill", color: .green)
             SettingsSidebarPaneRow(pane: .notifications, systemImage: "bell.badge.fill", color: .red)
             SettingsSidebarPaneRow(pane: .menuBar, systemImage: "menubar.rectangle", color: .blue)
@@ -78,6 +79,7 @@ struct SettingsSidebarView: View {
                     .padding(.trailing, 10)
             }
         }
+        .disabled(self.settings.usesRemoteCodexBarProvidersOnly)
     }
 
     private var selectionBinding: Binding<SettingsPane?> {
@@ -113,7 +115,8 @@ struct SettingsSidebarView: View {
     }
 
     private var canReorderProviders: Bool {
-        !self.settings.providersSortedAlphabetically
+        !self.settings.usesRemoteCodexBarProvidersOnly
+            && !self.settings.providersSortedAlphabetically
             && self.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 

@@ -172,6 +172,113 @@ final class InMemoryCopilotTokenStore: CopilotTokenStoring, @unchecked Sendable 
     }
 }
 
+final class InMemoryRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var storedValues: [RemoteCodexBarStoredCredential?] = []
+
+    init(value: RemoteCodexBarStoredCredential? = nil) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+        self.storedValues.append(credential)
+    }
+}
+
+final class KeychainGateAwareRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var loadAttempts = 0
+
+    init(value: RemoteCodexBarStoredCredential? = nil) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.loadAttempts += 1
+        return KeychainAccessGate.isExplicitlyDisabled ? nil : self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+    }
+}
+
+final class FailingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var failWrites = false
+
+    init(value: RemoteCodexBarStoredCredential? = nil) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        guard !self.failWrites else { throw RemoteCodexBarTokenStoreError.writeFailed }
+        self.value = credential
+    }
+}
+
+/// Mirrors a Keychain item whose access-control list rejects the current binary: silent reads fail with
+/// `.interactionRequired` until an interactive read authorizes and re-owns the record.
+final class AuthorizationRequiringRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var isAuthorized = false
+    var denyInteraction = false
+    var loadAttempts = 0
+    var interactiveLoadAttempts = 0
+
+    init(value: RemoteCodexBarStoredCredential?) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.loadAttempts += 1
+        guard self.isAuthorized else { throw RemoteCodexBarTokenStoreError.interactionRequired }
+        return self.value
+    }
+
+    func loadCredentialAllowingInteraction() throws -> RemoteCodexBarStoredCredential? {
+        self.interactiveLoadAttempts += 1
+        guard !self.denyInteraction else { throw RemoteCodexBarTokenStoreError.interactionRequired }
+        self.isAuthorized = true
+        return self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+        self.isAuthorized = true
+    }
+}
+
+final class RetryingRemoteCodexBarTokenStore: RemoteCodexBarTokenStoring, @unchecked Sendable {
+    var value: RemoteCodexBarStoredCredential?
+    var loadAttempts = 0
+
+    init(value: RemoteCodexBarStoredCredential?) {
+        self.value = value
+    }
+
+    func loadCredential() throws -> RemoteCodexBarStoredCredential? {
+        self.loadAttempts += 1
+        if self.loadAttempts == 1 {
+            throw RemoteCodexBarTokenStoreError.temporarilyUnavailable
+        }
+        return self.value
+    }
+
+    func storeCredential(_ credential: RemoteCodexBarStoredCredential?) throws {
+        self.value = credential
+    }
+}
+
 final class InMemoryTokenAccountStore: ProviderTokenAccountStoring, @unchecked Sendable {
     var accounts: [UsageProvider: ProviderTokenAccountData] = [:]
     private let fileURL: URL
@@ -227,6 +334,7 @@ func testSettingsStore(
     suiteName: String,
     userDefaults: UserDefaults? = nil,
     tokenAccountStore: any ProviderTokenAccountStoring = InMemoryTokenAccountStore(),
+    remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring = InMemoryRemoteCodexBarTokenStore(),
     config: CodexBarConfig? = nil,
     keychainAccessPolicy: SettingsStoreKeychainAccessPolicy = .live,
     prepareDefaults: ((UserDefaults) -> Void)? = nil) -> SettingsStore
@@ -261,6 +369,7 @@ func testSettingsStore(
         augmentCookieStore: InMemoryCookieHeaderStore(),
         ampCookieStore: InMemoryCookieHeaderStore(),
         copilotTokenStore: InMemoryCopilotTokenStore(),
+        remoteCodexBarTokenStore: remoteCodexBarTokenStore,
         tokenAccountStore: tokenAccountStore,
         keychainAccessPolicy: keychainAccessPolicy)
 }

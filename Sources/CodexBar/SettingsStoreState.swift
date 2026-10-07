@@ -99,6 +99,7 @@ struct SettingsDefaultsState {
     var agentSessionsManualHosts: String
     var agentSessionsHideUnreachableHosts: Bool
     var preferredCurrencyCode: String
+    var remoteCodexBarRemoteOnlyEnabled: Bool
     var iCloudSyncEnabled: Bool
     var iCloudSyncIncludeSecrets: Bool
     var iCloudSyncSnapshotsEnabled: Bool

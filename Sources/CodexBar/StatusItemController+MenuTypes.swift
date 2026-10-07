@@ -9,9 +9,12 @@ extension StatusItemController {
     }
 
     var fallbackProvider: UsageProvider? {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return nil
+        }
         // Intentionally uses availability-filtered list: fallback activates when no provider
         // can actually work, ensuring at least a codex icon is always visible.
-        self.store.enabledProviders().isEmpty ? .codex : nil
+        return self.store.enabledProviders().isEmpty ? UsageProvider.codex : nil
     }
 }
 

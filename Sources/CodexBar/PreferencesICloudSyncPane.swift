@@ -4,10 +4,25 @@ import SwiftUI
 @MainActor
 struct ICloudSyncPane: View {
     @Bindable var settings: SettingsStore
+    @Bindable var store: UsageStore
     @Bindable var state: CloudSyncState
+    @State private var remoteCodexBarServerURLDraft: String
+    @State private var remoteCodexBarBearerTokenDraft: String
+    @State private var remoteCodexBarPlainHTTPConsentEndpoint: String?
     private static let securityFootnote =
         "Secrets use iCloud end-to-end encryption via encryptedValues. " +
         "Hooks and machine-local paths never sync."
+
+    init(settings: SettingsStore, store: UsageStore, state: CloudSyncState) {
+        self.settings = settings
+        self.store = store
+        self.state = state
+        self._remoteCodexBarServerURLDraft = State(initialValue: settings.remoteCodexBarServerURL)
+        self._remoteCodexBarBearerTokenDraft = State(initialValue: settings.remoteCodexBarBearerToken)
+        self._remoteCodexBarPlainHTTPConsentEndpoint = State(initialValue: settings.remoteCodexBarAllowsPlainHTTP
+            ? settings.remoteCodexBarServerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil)
+    }
 
     var body: some View {
         Form {
@@ -45,6 +60,67 @@ struct ICloudSyncPane: View {
             } footer: {
                 if let availabilityMessage = self.availabilityMessage {
                     SettingsSectionFooter(availabilityMessage)
+                }
+            }
+
+            Section {
+                TextField("https://codexbar.example", text: self.remoteCodexBarServerURLDraftBinding)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
+                    .textFieldStyle(.roundedBorder)
+                if self.remoteCodexBarDraftRequiresPlainHTTPConsent {
+                    Toggle(
+                        "Allow this bearer token over unencrypted private-network HTTP",
+                        isOn: self.remoteCodexBarPlainHTTPConsentBinding)
+                        .toggleStyle(.checkbox)
+                }
+                HStack {
+                    Button("Connect") {
+                        self.settings.applyRemoteCodexBarConfiguration(
+                            serverURL: self.remoteCodexBarServerURLDraft,
+                            bearerToken: self.remoteCodexBarBearerTokenDraft,
+                            allowsPlainHTTP: self.remoteCodexBarDraftAllowsPlainHTTP)
+                    }
+                    .disabled(self.remoteCodexBarDraftConfiguration == nil || !self.remoteCodexBarDraftHasChanges)
+
+                    Button("Disconnect", role: .destructive) {
+                        if self.settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "") {
+                            self.remoteCodexBarServerURLDraft = ""
+                            self.remoteCodexBarBearerTokenDraft = ""
+                            self.remoteCodexBarPlainHTTPConsentEndpoint = nil
+                        }
+                    }
+                    .disabled(self.settings.remoteCodexBarConfiguration == nil)
+                }
+
+                Toggle(
+                    "Use every provider from this server only",
+                    isOn: self.remoteOnlyBinding)
+                    .toggleStyle(.checkbox)
+                    .disabled(self.settings.remoteCodexBarConfiguration == nil)
+
+                if self.settings.remoteCodexBarTokenNeedsAuthorization {
+                    Button("Unlock Saved Token") {
+                        self.settings.authorizeRemoteCodexBarTokenAccess()
+                        self.remoteCodexBarServerURLDraft = self.settings.remoteCodexBarServerURL
+                        self.remoteCodexBarBearerTokenDraft = self.settings.remoteCodexBarBearerToken
+                    }
+                }
+            } header: {
+                Text("Remote CodexBar")
+            } footer: {
+                if let message = self.settings.remoteCodexBarURLValidationMessage(
+                    for: self.remoteCodexBarServerURLDraft) ??
+                    self.settings.remoteCodexBarSecretError ??
+                    self.store.remoteCodexBarError
+                {
+                    SettingsSectionFooter(message)
+                } else {
+                    SettingsSectionFooter(
+                        self.settings.usesRemoteCodexBarProvidersOnly
+                            ? "Local provider probes are disabled. Provider menus and usage come only from this server."
+                            :
+                            "Connects to a separately running codexbar serve and shows its provider snapshots in menus.")
                 }
             }
 
@@ -90,6 +166,54 @@ struct ICloudSyncPane: View {
 
     private var syncCanBeEnabled: Bool {
         self.state.availability == .available
+    }
+
+    private var remoteCodexBarServerURLDraftBinding: Binding<String> {
+        Binding(
+            get: { self.remoteCodexBarServerURLDraft },
+            set: { newValue in
+                let committedEndpoint = self.settings.remoteCodexBarServerURL
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let newEndpoint = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if newEndpoint != committedEndpoint {
+                    self.remoteCodexBarBearerTokenDraft = ""
+                    self.remoteCodexBarPlainHTTPConsentEndpoint = nil
+                }
+                self.remoteCodexBarServerURLDraft = newValue
+            })
+    }
+
+    private var remoteCodexBarDraftConfiguration: RemoteCodexBarConfiguration? {
+        RemoteCodexBarConfiguration.resolve(
+            serverURL: self.remoteCodexBarServerURLDraft,
+            bearerToken: self.remoteCodexBarBearerTokenDraft,
+            allowsPlainHTTP: self.remoteCodexBarDraftAllowsPlainHTTP)
+    }
+
+    private var remoteCodexBarDraftHasChanges: Bool {
+        self.remoteCodexBarServerURLDraft != self.settings.remoteCodexBarServerURL ||
+            self.remoteCodexBarBearerTokenDraft != self.settings.remoteCodexBarBearerToken ||
+            self.remoteCodexBarDraftAllowsPlainHTTP != self.settings.remoteCodexBarAllowsPlainHTTP
+    }
+
+    private var remoteCodexBarDraftRequiresPlainHTTPConsent: Bool {
+        RemoteCodexBarConfiguration.requiresPlainHTTPConsent(serverURL: self.remoteCodexBarServerURLDraft)
+    }
+
+    private var remoteCodexBarDraftAllowsPlainHTTP: Bool {
+        self.remoteCodexBarDraftRequiresPlainHTTPConsent &&
+            self.remoteCodexBarPlainHTTPConsentEndpoint ==
+            self.remoteCodexBarServerURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var remoteCodexBarPlainHTTPConsentBinding: Binding<Bool> {
+        Binding(
+            get: { self.remoteCodexBarDraftAllowsPlainHTTP },
+            set: { isAllowed in
+                self.remoteCodexBarPlainHTTPConsentEndpoint = isAllowed
+                    ? self.remoteCodexBarServerURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : nil
+            })
     }
 
     private var syncCanRun: Bool {
@@ -145,6 +269,12 @@ struct ICloudSyncPane: View {
         Binding(
             get: { self.settings.iCloudSyncShowFleetAccounts },
             set: { self.settings.iCloudSyncShowFleetAccounts = $0 })
+    }
+
+    private var remoteOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { self.settings.remoteCodexBarRemoteOnlyEnabled },
+            set: { self.settings.remoteCodexBarRemoteOnlyEnabled = $0 })
     }
 
     private func relativeTime(_ date: Date?) -> String {

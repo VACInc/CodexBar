@@ -251,6 +251,7 @@ final class SettingsStore {
     @ObservationIgnored let configStore: CodexBarConfigStore
     @ObservationIgnored let antigravityOAuthCredentialsStore: AntigravityOAuthCredentialsStore
     @ObservationIgnored let keychainAccessPolicy: SettingsStoreKeychainAccessPolicy
+    @ObservationIgnored let remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring
     @ObservationIgnored var config: CodexBarConfig
     @ObservationIgnored var configPersistTask: Task<Void, Never>?
     @ObservationIgnored var configPersistWriteTask: Task<Void, Never>?
@@ -270,6 +271,16 @@ final class SettingsStore {
     @ObservationIgnored private nonisolated(unsafe) var lowPowerModeObserver: NSObjectProtocol?
     var defaultsState: SettingsDefaultsState
     var providerSwitcherShortcuts = ProviderSwitcherShortcuts.defaults
+    var remoteCodexBarServerURLStorage: String
+    var remoteCodexBarBearerTokenStorage: String
+    var remoteCodexBarAllowsPlainHTTPStorage: Bool
+    var remoteCodexBarSecretError: String?
+    @ObservationIgnored var remoteCodexBarTokenLoadNeedsRetry: Bool
+    /// The saved credential exists but this binary is missing from its Keychain ACL. Recovery needs a
+    /// user-visible prompt, so it is attempted at most once per launch and can also be triggered manually.
+    var remoteCodexBarTokenNeedsAuthorization: Bool = false
+    @ObservationIgnored var remoteCodexBarTokenAuthorizationAttempted = false
+    var remoteCodexBarConfigurationRevision: Int = 0
     var configRevision: Int = 0
     var providerDetailSettingsRevision: Int = 0
     var backgroundWorkSettingsRevision: Int = 0
@@ -321,6 +332,7 @@ final class SettingsStore {
             account: "amp-cookie",
             promptKind: .ampCookie),
         copilotTokenStore: any CopilotTokenStoring = KeychainCopilotTokenStore(),
+        remoteCodexBarTokenStore: any RemoteCodexBarTokenStoring = KeychainRemoteCodexBarTokenStore(),
         tokenAccountStore: any ProviderTokenAccountStoring = FileTokenAccountStore(),
         antigravityOAuthCredentialsStore: AntigravityOAuthCredentialsStore = AntigravityOAuthCredentialsStore(),
         keychainAccessPolicy: SettingsStoreKeychainAccessPolicy = .live,
@@ -382,6 +394,7 @@ final class SettingsStore {
         self.configStore = configStore
         self.antigravityOAuthCredentialsStore = antigravityOAuthCredentialsStore
         self.keychainAccessPolicy = keychainAccessPolicy
+        self.remoteCodexBarTokenStore = remoteCodexBarTokenStore
         self.config = config
         self.configLoading = true
         let defaultsState = Self.loadDefaultsState(
@@ -391,6 +404,31 @@ final class SettingsStore {
         self.providerSwitcherShortcuts = (try? ProviderSwitcherShortcuts.validated(
             userDefaults.dictionary(forKey: "switcherShortcuts") as? [String: String] ?? [:]))
             ?? ProviderSwitcherShortcuts.defaults
+        let remoteCodexBarServerURLDraft = userDefaults.string(forKey: "remoteCodexBarServerURL") ?? ""
+        do {
+            let credential = try remoteCodexBarTokenStore.loadCredential()
+            self.remoteCodexBarServerURLStorage = credential?.serverURL ?? remoteCodexBarServerURLDraft
+            self.remoteCodexBarBearerTokenStorage = credential?.bearerToken ?? ""
+            self.remoteCodexBarAllowsPlainHTTPStorage = credential?.allowsPlainHTTP ?? false
+            self.remoteCodexBarSecretError = nil
+            self.remoteCodexBarTokenLoadNeedsRetry = KeychainAccessGate.isExplicitlyDisabled
+            if let credential {
+                userDefaults.set(credential.serverURL, forKey: "remoteCodexBarServerURL")
+                userDefaults.set(credential.allowsPlainHTTP, forKey: "remoteCodexBarAllowsPlainHTTP")
+            }
+        } catch {
+            self.remoteCodexBarServerURLStorage = remoteCodexBarServerURLDraft
+            self.remoteCodexBarBearerTokenStorage = ""
+            // Mirrored separately so the plain-HTTP consent survives a Keychain read failure the same
+            // way the endpoint does, instead of silently reverting to HTTPS-only.
+            self.remoteCodexBarAllowsPlainHTTPStorage = userDefaults.bool(
+                forKey: "remoteCodexBarAllowsPlainHTTP")
+            self.remoteCodexBarSecretError = error.localizedDescription
+            self.remoteCodexBarTokenLoadNeedsRetry =
+                error as? RemoteCodexBarTokenStoreError == .temporarilyUnavailable
+            self.remoteCodexBarTokenNeedsAuthorization =
+                error as? RemoteCodexBarTokenStoreError == .interactionRequired
+        }
         self.mergedMenuLastSelectedWasOverviewStorage = defaultsState.mergedMenuLastSelectedWasOverview
         self.selectedMenuProviderRawStorage = defaultsState.selectedMenuProviderRaw
         self.updateProviderState(config: config)
@@ -679,6 +717,8 @@ extension SettingsStore {
             agentSessionsHideUnreachableHosts: userDefaults.object(
                 forKey: "agentSessionsHideUnreachableHosts") as? Bool ?? false,
             preferredCurrencyCode: userDefaults.string(forKey: "preferredCurrencyCode") ?? "USD",
+            remoteCodexBarRemoteOnlyEnabled: userDefaults.object(
+                forKey: "remoteCodexBarRemoteOnlyEnabled") as? Bool ?? false,
             iCloudSyncEnabled: userDefaults.object(forKey: "iCloudSyncEnabled") as? Bool ?? false,
             iCloudSyncIncludeSecrets: userDefaults.object(forKey: "iCloudSyncIncludeSecrets") as? Bool ?? true,
             iCloudSyncSnapshotsEnabled: userDefaults.object(forKey: "iCloudSyncSnapshotsEnabled") as? Bool ?? true,

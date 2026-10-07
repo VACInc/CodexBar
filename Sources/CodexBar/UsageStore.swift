@@ -9,9 +9,9 @@ import SweetCookieKit
 @MainActor
 extension UsageStore {
     var menuObservationToken: Int {
-        _ = self.snapshots
-        _ = self.errors
-        _ = self.diagnostics
+        _ = (self.snapshots, self.remoteCodexBarSnapshots, self.remoteCodexBarPrimarySnapshots)
+        _ = (self.remoteCodexBarProviderIDs, self.remoteCodexBarError, self.remoteCodexBarRefreshInFlight)
+        _ = (self.errors, self.diagnostics)
         _ = self.knownLimitsAvailabilityByProvider
         _ = self.lastSourceLabels
         _ = self.lastFetchAttempts
@@ -45,6 +45,11 @@ extension UsageStore {
 
     var iconObservationToken: Int {
         _ = self.snapshots
+        // Remote CodexBar snapshots drive the menu-bar icon in remote-only mode (and act as
+        // fallback data otherwise); without observing them the status item never re-renders
+        // when served snapshots arrive, even though the menu does. See menuObservationToken.
+        _ = self.remoteCodexBarSnapshots
+        _ = self.remoteCodexBarPrimarySnapshots
         _ = self.claudeSwapAccountSnapshots
         _ = self.claudeSwapRevision
         _ = self.errors
@@ -100,7 +105,7 @@ extension UsageStore {
 
     /// Returns the login method (plan type) for the specified provider, if available.
     private func loginMethod(for provider: UsageProvider) -> String? {
-        self.snapshots[provider.instanceID]?.loginMethod(for: provider)
+        self.snapshot(for: provider.instanceID)?.loginMethod(for: provider)
     }
 
     /// Returns true if the Claude account appears to be a subscription (Max, Pro, Ultra, Team).
@@ -118,7 +123,7 @@ extension UsageStore {
 
     var preferredSnapshot: UsageSnapshot? {
         for provider in self.enabledProviders() {
-            if let snap = self.snapshots[provider] {
+            if let snap = self.snapshot(for: provider) {
                 return snap
             }
         }
@@ -159,6 +164,15 @@ final class UsageStore {
     }
 
     var snapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+    var remoteCodexBarSnapshots: [AccountSnapshotSyncPayload] = []
+    var remoteCodexBarProviderIDs: [ProviderInstanceID] = []
+    var remoteCodexBarPrimarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
+    var remoteCodexBarActiveAccountKeys: [ProviderInstanceID: String] = [:]
+    var remoteCodexBarError: String?
+    var remoteCodexBarRefreshInFlight = false
+    @ObservationIgnored var remoteCodexBarSnapshotConfigurationID: String?
+    @ObservationIgnored var remoteCodexBarRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var remoteCodexBarRefreshTaskConfigurationID: String?
     var errors: [ProviderInstanceID: String] = [:]
     var diagnostics: [ProviderInstanceID: String] = [:]
     var geminiMigrationObservation: GeminiMigrationObservation = .none
@@ -508,6 +522,7 @@ final class UsageStore {
     }
 
     @ObservationIgnored let tokenFetchTimeout: TimeInterval = 10 * 60
+    @ObservationIgnored let remoteCodexBarClient: RemoteCodexBarSnapshotClient
     @ObservationIgnored let startupBehavior: StartupBehavior
     @ObservationIgnored let planUtilizationPersistenceCoordinator: PlanUtilizationHistoryPersistenceCoordinator
 
@@ -528,6 +543,7 @@ final class UsageStore {
         widgetSnapshotURL: URL? = nil,
         widgetAccountSnapshotStore: (any WidgetAccountSnapshotStoring)? = nil,
         widgetTimelineReloader: @escaping @MainActor () -> Void = UsageStore.reloadWidgetTimelines,
+        remoteCodexBarClient: RemoteCodexBarSnapshotClient = RemoteCodexBarSnapshotClient(),
         planUtilizationHistoryLoadGateForTesting: PlanUtilizationHistoryLoadGate? = nil)
     {
         self.codexFetcher = fetcher
@@ -540,6 +556,7 @@ final class UsageStore {
         self.pluginApprovalStore = pluginApprovalStore
         self.widgetSnapshotURL = widgetSnapshotURL
         self.widgetTimelineReloader = widgetTimelineReloader
+        self.remoteCodexBarClient = remoteCodexBarClient
         self.historicalUsageHistoryStore = historicalUsageHistoryStore
         self.startupBehavior = startupBehavior.resolved(isRunningTests: TestProcessSafety.isRunning)
         let planHistoryStore = Self.resolvedPlanHistoryStore(planUtilizationHistoryStore, startup: self.startupBehavior)
@@ -634,33 +651,12 @@ final class UsageStore {
         return false
     }
 
-    func enabledProviders() -> [ProviderInstanceID] {
-        // Use cached enablement to avoid repeated UserDefaults lookups in animation ticks.
-        let enabled = self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata)
-        let now = Date()
-        return enabled.filter { self.isEnabledProviderInstance($0, now: now) }
-    }
-
-    /// Enabled providers without availability filtering. Used for display (switcher, merge-icons).
-    func enabledProvidersForDisplay() -> [ProviderInstanceID] {
-        self.settings.enabledProvidersOrdered(metadataByProvider: self.providerMetadata)
-    }
-
-    /// Providers that should actually participate in background refresh/status/token work.
-    func enabledProvidersForBackgroundWork() -> [ProviderInstanceID] {
-        self.enabledProviders()
-    }
-
     func metadata(for provider: UsageProvider) -> ProviderMetadata {
         self.providerMetadata[provider]!
     }
 
     var codexBrowserCookieOrder: BrowserCookieImportOrder {
         self.metadata(for: .codex).browserCookieOrder ?? Browser.defaultImportOrder
-    }
-
-    func snapshot(for instanceID: ProviderInstanceID) -> UsageSnapshot? {
-        self.profileScopedSnapshot(for: instanceID)
     }
 
     /// The snapshot the menu-bar indicator should render for a provider instance.
@@ -675,6 +671,9 @@ final class UsageStore {
     }
 
     func sourceLabel(for provider: UsageProvider) -> String {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return "remote CodexBar"
+        }
         var label = self.lastSourceLabels[provider.instanceID] ?? ""
         if label.isEmpty {
             let descriptor = ProviderDescriptorRegistry.descriptor(for: provider)
@@ -712,7 +711,10 @@ final class UsageStore {
     }
 
     func isStale(provider: UsageProvider) -> Bool {
-        self.errors[provider.instanceID] != nil
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarError != nil
+        }
+        return self.errors[provider.instanceID] != nil
     }
 
     func knownLimitsAvailability(for provider: UsageProvider) -> UsageLimitsAvailability? {
@@ -729,6 +731,9 @@ final class UsageStore {
     }
 
     func isEnabled(_ provider: UsageProvider) -> Bool {
+        if self.settings.usesRemoteCodexBarProvidersOnly {
+            return self.remoteCodexBarProviderIDs.contains(provider.instanceID)
+        }
         let enabled = self.settings.isProviderEnabledCached(
             provider: provider,
             metadataByProvider: self.providerMetadata)
@@ -824,11 +829,19 @@ final class UsageStore {
                 self.startupConnectivityRetryRefreshActive = false
             }
 
+            if self.settings.usesRemoteCodexBarProvidersOnly {
+                await self.refreshRemoteCodexBarSnapshot()
+                self.persistWidgetSnapshot(reason: "remote-only-refresh")
+                return true
+            }
+
             self.clearDisabledProviderState(enabledProviders: enabledProviderSet)
             self.clearUnavailableProviderState(
                 displayEnabledProviders: enabledProviderSet,
                 availableProviders: availableRefreshProviders)
             self.scheduleStorageFootprintRefresh(for: displayEnabledProviders.compactMap(\.firstPartyProvider))
+            // Remote CodexBar is best-effort and must never hold local provider refreshes open.
+            self.scheduleRemoteCodexBarRefresh()
 
             await withTaskGroup(of: Void.self) { group in
                 for instanceID in refreshProviders {
@@ -1001,6 +1014,7 @@ final class UsageStore {
 
     deinit {
         self.timerTask?.cancel()
+        self.remoteCodexBarRefreshTask?.cancel()
         self.tokenRefreshSequenceTask?.cancel()
         self.codexCostCatchUpTask?.cancel()
         self.forcedRefreshEnrichmentTask?.cancel()

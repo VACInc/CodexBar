@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor
 struct AdvancedPane: View {
     @Bindable var settings: SettingsStore
-    @Bindable var store: UsageStore
     @State private var isInstallingCLI = false
     @State private var cliStatus: String?
 

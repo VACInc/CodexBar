@@ -240,8 +240,10 @@ extension UsageStore {
             accountCount: self.claudeSwapAccountSnapshots.count,
             showSingleAccount: self.settings.claudeSwapShowSingleAccount)
         let activeSwapAccount = swapOwnsClaude ? self.claudeSwapAccountSnapshots.first(where: \.isActive) : nil
-        let snapshot = swapOwnsClaude ? activeSwapAccount?.snapshot : self.snapshots[provider.instanceID]
-        let tokenSnapshot = self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
+        let snapshot = swapOwnsClaude ? activeSwapAccount?.snapshot : self.snapshot(for: provider.instanceID)
+        let tokenSnapshot = self.settings.usesRemoteCodexBarProvidersOnly
+            ? nil
+            : self.tokenSnapshotForCurrentProviderConfig(for: provider)?.snapshot
         let claudeQuotaOwnerKey: String? = if swapOwnsClaude {
             activeSwapAccount.flatMap { account in
                 ClaudeSwapRetainedUsageStore.ownershipFingerprint(for: account)

@@ -408,7 +408,21 @@ struct RemoteCodexBarProjection: Sendable {
                 cost: row.cost,
                 error: row.error?.message ?? row.accountsError,
                 updatedAt: row.updatedAt ?? snapshot.generatedAt)
-            if let rowUsage {
+            // The serving Mac's active account drives the bar: with a multi-account source (claude-swap,
+            // token accounts) the ambient row can still describe a different account's quota.
+            if let active = row.accounts.first(where: { $0.active }),
+               let usage = self.usageSnapshot(
+                   provider: provider,
+                   windows: active.windows,
+                   identity: active.identity,
+                   status: row.status,
+                   credits: row.credits,
+                   cost: row.cost,
+                   error: active.error,
+                   updatedAt: active.updatedAt ?? row.updatedAt ?? snapshot.generatedAt)
+            {
+                primarySnapshots[provider.instanceID] = usage
+            } else if let rowUsage {
                 primarySnapshots[provider.instanceID] = rowUsage
             }
             if row.accounts.isEmpty, let rowUsage {

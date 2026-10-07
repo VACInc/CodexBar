@@ -192,7 +192,8 @@ struct RemoteCodexBarSnapshotTests {
         store._test_providerRefreshOverride = { _ in performedLocalRefresh = true }
         await store.refreshProvider(.codex)
         #expect(!performedLocalRefresh)
-        #expect(store.remoteCodexBarPrimarySnapshots[.codex]?.identity?.accountEmail == "person@example.com")
+        // The served active account, not the ambient row, owns the bar snapshot.
+        #expect(store.remoteCodexBarPrimarySnapshots[.codex]?.identity?.accountEmail == "work@example.com")
 
         settings.applyRemoteCodexBarConfiguration(serverURL: "", bearerToken: "")
         #expect(!settings.remoteCodexBarRemoteOnlyEnabled)

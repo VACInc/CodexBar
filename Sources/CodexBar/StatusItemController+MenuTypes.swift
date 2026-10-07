@@ -9,16 +9,11 @@ extension StatusItemController {
     }
 
     var fallbackProvider: UsageProvider? {
-        if self.settings.usesRemoteCodexBarProvidersOnly {
-            // Remote-only mode has no local providers. Until the first remote snapshot lists
-            // providers (or when the server rejects the token / is unreachable), keep a codex
-            // fallback item so the app stays reachable and the remote error is visible.
-            self.store.enabledProvidersForDisplay().isEmpty ? .codex : nil
-        } else {
-            // Intentionally uses availability-filtered list: fallback activates when no provider
-            // can actually work, ensuring at least a codex icon is always visible.
-            self.store.enabledProviders().isEmpty ? .codex : nil
-        }
+        // Intentionally uses availability-filtered list: fallback activates when no provider
+        // can actually work, ensuring at least a codex icon is always visible. In remote-only
+        // mode this is the served provider list, so the icon (and the remote error) stays
+        // reachable before the first snapshot, after a rejected token, or while offline.
+        self.store.enabledProviders().isEmpty ? .codex : nil
     }
 }
 

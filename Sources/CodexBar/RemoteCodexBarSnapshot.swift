@@ -434,6 +434,12 @@ struct RemoteCodexBarProjection: Sendable {
                     usage: rowUsage))
             }
 
+            // Without an explicit active flag, the account matching the provider row's own identity
+            // is the one the serving Mac is using; otherwise the menu would headline whichever
+            // account happens to be freshest (often an errored saved account).
+            let headlineAccountID = (row.accounts.first(where: { $0.active })
+                ?? self.accountMatchingRowIdentity(row))?.id
+
             if primarySnapshots[provider.instanceID] == nil,
                let account = row.accounts.first(where: { $0.active }) ?? row.accounts.first,
                let usage = self.usageSnapshot(
@@ -470,7 +476,7 @@ struct RemoteCodexBarProjection: Sendable {
                         serverIdentity: serverIdentity),
                     displayLabel: account.label,
                     usage: usage)
-                if account.active, activeAccountKeys[provider.instanceID] == nil {
+                if account.id == headlineAccountID, activeAccountKeys[provider.instanceID] == nil {
                     activeAccountKeys[provider.instanceID] = payload.accountKey
                 }
                 projected.append(payload)
@@ -481,6 +487,20 @@ struct RemoteCodexBarProjection: Sendable {
             providerIDs: providerIDs,
             primarySnapshots: primarySnapshots,
             activeAccountKeys: activeAccountKeys)
+    }
+
+    private static func accountMatchingRowIdentity(
+        _ row: RemoteCodexBarSnapshot.Provider) -> RemoteCodexBarSnapshot.Account?
+    {
+        guard let rowEmail = row.identity?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rowEmail.isEmpty
+        else { return nil }
+        let matches = row.accounts.filter {
+            let candidate = $0.identity?.accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return candidate?.caseInsensitiveCompare(rowEmail) == .orderedSame
+        }
+        guard matches.count == 1 else { return nil }
+        return matches[0]
     }
 
     private static func accountIdentity(

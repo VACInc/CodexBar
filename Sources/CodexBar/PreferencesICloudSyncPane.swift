@@ -64,7 +64,10 @@ struct ICloudSyncPane: View {
             }
 
             Section {
-                TextField("https://codexbar.example", text: self.remoteCodexBarServerURLDraftBinding)
+                TextField(
+                    "Server URL",
+                    text: self.remoteCodexBarServerURLDraftBinding,
+                    prompt: Text(verbatim: "https://codexbar.example"))
                     .textFieldStyle(.roundedBorder)
                 SecureField("Bearer token", text: self.$remoteCodexBarBearerTokenDraft)
                     .textFieldStyle(.roundedBorder)

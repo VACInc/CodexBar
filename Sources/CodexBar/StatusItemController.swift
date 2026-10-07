@@ -144,6 +144,8 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     var statusItems: [ProviderInstanceID: NSStatusItem] = [:]
     /// App intent survives Tahoe changing `NSStatusItem.isVisible` after Control Center rejects its scene.
     var expectedVisibleStatusItemAutosaveNames: Set<String> = []
+    /// Remote-only mode learns its provider list asynchronously from the store, not from settings.
+    var lastRemoteOnlyVisibilityProviderIDs: [ProviderInstanceID]?
     var lastMenuProvider: ProviderInstanceID?
     var menuProviders: [ObjectIdentifier: ProviderInstanceID] = [:]
     var menuSession = MenuSessionCoordinator<ObjectIdentifier>()
@@ -518,6 +520,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
     func handleObservedStoreMenuChange() {
         self.observeStoreChanges()
         self.updatePersistentRefreshItemsEnabled()
+        self.updateVisibilityIfRemoteProvidersChanged()
         let rootOpenHandledReadiness = self.consumeRootOpenHandledMenuObservationIfNeeded()
         // `refreshOpenMenus` is only consulted when a menu is currently open.
         // Computing the readiness signature serializes every enabled provider's
@@ -760,11 +763,29 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
         self.updateIcons()
     }
 
+    /// In remote-only mode the displayed providers come from the remote snapshot, which arrives
+    /// after launch and after Connect. Settings observation never sees that, so re-evaluate
+    /// status item visibility whenever the remote provider list changes.
+    private func updateVisibilityIfRemoteProvidersChanged() {
+        guard self.settings.usesRemoteCodexBarProvidersOnly else {
+            self.lastRemoteOnlyVisibilityProviderIDs = nil
+            return
+        }
+        let providerIDs = self.store.enabledProvidersForDisplay()
+        guard providerIDs != self.lastRemoteOnlyVisibilityProviderIDs else { return }
+        self.updateVisibility()
+        self.updateIcons()
+    }
+
     private func updateVisibility() {
         #if DEBUG
         guard !self.isReleasedForTesting else { return }
         #endif
-        let anyEnabled = !self.store.enabledProvidersForDisplay().isEmpty
+        let displayedProviders = self.store.enabledProvidersForDisplay()
+        self.lastRemoteOnlyVisibilityProviderIDs = self.settings.usesRemoteCodexBarProvidersOnly
+            ? displayedProviders
+            : nil
+        let anyEnabled = !displayedProviders.isEmpty
         let force = self.store.debugForceAnimation
         let mergeIcons = self.shouldMergeIcons
         var expectedVisibleAutosaveNames: Set<String> = []

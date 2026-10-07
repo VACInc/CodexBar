@@ -771,6 +771,134 @@ struct RemoteCodexBarSnapshotTests {
         #expect(projection.snapshots.count { $0.provider == UsageProvider.codex.instanceID } == 1)
     }
 
+    @MainActor
+    @Test
+    func `remote only status item stays reachable before providers arrive and follows the served list`() {
+        let settings = testSettingsStore(
+            suiteName: "RemoteCodexBarSnapshotTests-remote-only-visibility",
+            remoteCodexBarTokenStore: InMemoryRemoteCodexBarTokenStore(value: RemoteCodexBarStoredCredential(
+                serverURL: "https://example.com",
+                bearerToken: "token",
+                allowsPlainHTTP: false)))
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.remoteCodexBarRemoteOnlyEnabled = true
+        let fetcher = UsageFetcher()
+        let store = UsageStore(
+            fetcher: fetcher,
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+        #expect(store.enabledProvidersForDisplay().isEmpty)
+
+        withStatusItemControllerForTesting(store: store, settings: settings, fetcher: fetcher) { controller in
+            // No served providers yet (first launch, rejected token, unreachable server): the codex
+            // fallback item keeps the menu, and the remote error, reachable.
+            #expect(controller.fallbackProvider == .codex)
+            #expect(controller.statusItems[.codex]?.isVisible == true)
+
+            // The snapshot arrives through the store, not settings; visibility must follow it.
+            store.remoteCodexBarProviderIDs = [.codex, .claude]
+            controller.handleObservedStoreMenuChange()
+            #expect(controller.fallbackProvider == nil)
+            #expect(controller.shouldMergeIcons)
+            #expect(controller.statusItem.isVisible)
+            #expect(controller.statusItems.isEmpty)
+
+            // Losing every served provider brings the fallback back.
+            store.remoteCodexBarProviderIDs = []
+            controller.handleObservedStoreMenuChange()
+            #expect(controller.statusItems[.codex]?.isVisible == true)
+        }
+    }
+
+    @Test
+    func `without an active flag the account matching the provider identity headlines`() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(
+            RemoteCodexBarSnapshot.self,
+            from: Data(Self.noActiveAccountJSON.utf8))
+        let serverURL = try #require(URL(string: "http://mini.example:8484/dashboard/v1/snapshot"))
+
+        let projection = RemoteCodexBarProjection.make(snapshot: snapshot, serverURL: serverURL)
+        let codexAccounts = projection.snapshots.filter { $0.provider == UsageProvider.codex.instanceID }
+        #expect(codexAccounts.count == 3)
+        let identityAccount = try #require(codexAccounts.first { $0.displayLabel == "Main" })
+        #expect(projection.activeAccountKeys[.codex] == identityAccount.accountKey)
+        #expect(projection.primarySnapshots[.codex]?.secondary?.usedPercent == 4)
+
+        // Ambiguous identity (two saved accounts with the provider email) picks nothing.
+        let ambiguous = try decoder.decode(
+            RemoteCodexBarSnapshot.self,
+            from: Data(Self.noActiveAccountJSON
+                .replacingOccurrences(of: "saved-a@example.com", with: "dev@example.com").utf8))
+        let ambiguousProjection = RemoteCodexBarProjection.make(snapshot: ambiguous, serverURL: serverURL)
+        #expect(ambiguousProjection.activeAccountKeys[.codex] == nil)
+    }
+
+    private static let noActiveAccountJSON = """
+    {
+      "schemaVersion": 1,
+      "generatedAt": "2026-10-07T12:00:00Z",
+      "staleAfterSeconds": 180,
+      "providers": [
+        {
+          "id": "codex",
+          "name": "Codex",
+          "enabled": true,
+          "display": {"accentColor": "#000000", "sortKey": 0, "priority": "normal"},
+          "source": "oauth",
+          "status": null,
+          "identity": {"accountEmail": "Dev@Example.com", "plan": "Pro"},
+          "windows": [
+            {"kind": "session", "label": "Session", "usedPercent": 0, "remainingPercent": 100, "resetAt": null},
+            {"kind": "weekly", "label": "Weekly", "usedPercent": 4, "remainingPercent": 96, "resetAt": null}
+          ],
+          "credits": null,
+          "cost": null,
+          "error": null,
+          "updatedAt": "2026-10-07T11:50:00Z",
+          "accounts": [
+            {
+              "id": "saved:1",
+              "label": "Saved A",
+              "active": false,
+              "identity": {"accountEmail": "saved-a@example.com", "plan": null},
+              "windows": [],
+              "pace": null,
+              "error": "Saved usage refresh failed",
+              "updatedAt": "2026-10-07T11:59:00Z"
+            },
+            {
+              "id": "saved:2",
+              "label": "Main",
+              "active": false,
+              "identity": {"accountEmail": "dev@example.com", "plan": "Pro"},
+              "windows": [
+                {"kind": "weekly", "label": "Weekly", "usedPercent": 4, "remainingPercent": 96, "resetAt": null}
+              ],
+              "pace": null,
+              "error": null,
+              "updatedAt": "2026-10-07T11:50:00Z"
+            },
+            {
+              "id": "saved:3",
+              "label": "Saved B",
+              "active": false,
+              "identity": {"accountEmail": "saved-b@example.com", "plan": null},
+              "windows": [],
+              "pace": null,
+              "error": "Saved usage refresh failed",
+              "updatedAt": "2026-10-07T11:58:00Z"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
     /// Live proof against a running `codexbar serve`. Opt-in: set LIVE_REMOTE_CODEXBAR_URL and
     /// LIVE_REMOTE_CODEXBAR_TOKEN_FILE (a 0600 file holding the bearer token). Prints counts only.
     @Test

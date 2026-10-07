@@ -182,7 +182,12 @@ struct CloudSyncDeviceRemovalTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let settings = Self.makeSettings(directory: directory)
         settings.iCloudSyncEnabled = true
-        let view = ICloudSyncPane(settings: settings, state: Self.makeState())
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+        let view = ICloudSyncPane(settings: settings, store: store, state: Self.makeState())
             .environment(\.colorScheme, .light)
             .environment(\.accessibilityEnabled, true)
             .frame(width: 560, height: 680)

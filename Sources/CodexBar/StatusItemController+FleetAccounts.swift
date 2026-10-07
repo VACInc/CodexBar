@@ -168,7 +168,7 @@ extension StatusItemController {
                 isActive: isActive,
                 canActivate: false,
                 snapshot: snapshot.usage,
-                error: nil,
+                error: self.remoteAccountError(for: snapshot),
                 sourceLabel: nil)
         }
     }
@@ -190,12 +190,21 @@ extension StatusItemController {
             snapshot.usage,
             provider: provider,
             label: label)
+        let error = self.remoteAccountError(for: snapshot)
         return self.menuCardModel(
             for: provider,
             context: .account(.init(
                 snapshot: displaySnapshot,
+                error: error,
                 info: AccountInfo(email: label.isEmpty ? nil : label, plan: nil),
-                subtitle: badge)))
+                // The served error replaces the source badge, the way a local errored account card reads.
+                subtitle: error == nil ? badge : nil)))
+    }
+
+    /// Error the serving Mac reported for a remote account. iCloud fleet payloads carry none.
+    private func remoteAccountError(for snapshot: AccountSnapshotSyncPayload) -> String? {
+        guard snapshot.deviceID == "remote-codexbar" else { return nil }
+        return self.store.remoteCodexBarAccountErrors[snapshot.accountKey]
     }
 
     private func fleetAccountDisplaySnapshot(

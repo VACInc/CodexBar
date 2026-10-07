@@ -384,6 +384,9 @@ struct RemoteCodexBarProjection: Sendable {
     /// Account key of the remote account the serving Mac has selected, per provider.
     /// Menus mark it active so a remote account list matches the local presentation.
     let activeAccountKeys: [ProviderInstanceID: String]
+    /// Error the serving Mac reported for an account, keyed by projected account key, so menus can
+    /// flag the account as unavailable instead of rendering a blank row.
+    var accountErrors: [String: String] = [:]
 
     static func make(
         snapshot: RemoteCodexBarSnapshot,
@@ -394,6 +397,11 @@ struct RemoteCodexBarProjection: Sendable {
         var providerIDs: [ProviderInstanceID] = []
         var primarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
         var activeAccountKeys: [ProviderInstanceID: String] = [:]
+        var accountErrors: [String: String] = [:]
+        func recordError(_ error: String?, for payload: AccountSnapshotSyncPayload) {
+            guard let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty else { return }
+            accountErrors[payload.accountKey] = error
+        }
         for row in snapshot.providers where row.enabled {
             guard let provider = UsageProvider(rawValue: row.id) else { continue }
             providerIDs.append(provider.instanceID)
@@ -426,12 +434,14 @@ struct RemoteCodexBarProjection: Sendable {
                 primarySnapshots[provider.instanceID] = rowUsage
             }
             if row.accounts.isEmpty, let rowUsage {
-                projected.append(AccountSnapshotSyncPayload(
+                let payload = AccountSnapshotSyncPayload(
                     provider: provider.instanceID,
                     deviceID: "remote-codexbar",
                     accountIdentity: providerIdentity,
                     displayLabel: row.identity?.accountEmail ?? row.name,
-                    usage: rowUsage))
+                    usage: rowUsage)
+                recordError(row.error?.message, for: payload)
+                projected.append(payload)
             }
 
             // Without an explicit active flag, the account matching the provider row's own identity
@@ -479,6 +489,7 @@ struct RemoteCodexBarProjection: Sendable {
                 if account.id == headlineAccountID, activeAccountKeys[provider.instanceID] == nil {
                     activeAccountKeys[provider.instanceID] = payload.accountKey
                 }
+                recordError(account.error, for: payload)
                 projected.append(payload)
             }
         }
@@ -486,7 +497,8 @@ struct RemoteCodexBarProjection: Sendable {
             snapshots: projected,
             providerIDs: providerIDs,
             primarySnapshots: primarySnapshots,
-            activeAccountKeys: activeAccountKeys)
+            activeAccountKeys: activeAccountKeys,
+            accountErrors: accountErrors)
     }
 
     private static func accountMatchingRowIdentity(

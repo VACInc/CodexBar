@@ -168,6 +168,9 @@ final class UsageStore {
     var remoteCodexBarProviderIDs: [ProviderInstanceID] = []
     var remoteCodexBarPrimarySnapshots: [ProviderInstanceID: UsageSnapshot] = [:]
     var remoteCodexBarActiveAccountKeys: [ProviderInstanceID: String] = [:]
+    /// Per-account errors the serving Mac reported, keyed by projected account key.
+    var remoteCodexBarAccountErrors: [String: String] = [:]
+    var remoteCodexBarLastSuccessfulFetchAt: Date?
     var remoteCodexBarError: String?
     var remoteCodexBarRefreshInFlight = false
     @ObservationIgnored var remoteCodexBarSnapshotConfigurationID: String?

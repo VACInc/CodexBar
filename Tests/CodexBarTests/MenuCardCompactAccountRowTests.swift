@@ -243,9 +243,17 @@ struct MenuCardCompactAccountRowTests {
     func `unavailable account retains error presentation without a fabricated reset`() throws {
         let model = try Fixture.model(Fixture.row(error: "Unavailable"))
         #expect(model.hasError)
-        #expect(model.detailLines.isEmpty)
+        #expect(model.detailLines == ["Unavailable"])
         #expect(model.headroomLabel == nil)
         #expect(model.accessibilityText.contains(L("Account unavailable")))
+    }
+
+    @Test
+    func `unavailable account error text is redacted in privacy mode`() throws {
+        let row = try Fixture.row(error: "Refresh failed for owner@example.com")
+        let model = Fixture.model(row, hidePersonalInfo: true)
+        #expect(model.detailLines.count == 1)
+        #expect(!model.detailLines[0].contains("owner@example.com"))
     }
 
     @Test

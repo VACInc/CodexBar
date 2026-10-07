@@ -679,19 +679,24 @@ extension UsageStore {
         creditsOverride: CreditsSnapshot? = nil,
         now: Date = Date()) -> CodexConsumerProjection
     {
-        let snapshot = surface == .overrideCard ? snapshotOverride : snapshotOverride ?? self.snapshots[.codex]
-        let rawUsageError = surface == .overrideCard ? errorOverride : errorOverride ?? self.errors[.codex]
-        let liveCredits = surface == .overrideCard ? creditsOverride : self.credits
-        let rawCreditsError = surface == .overrideCard ? nil : self.lastCreditsError
+        // Remote-only mode never runs local Codex probes: live cards read the served snapshot and the
+        // remote error, never local state left over from before the mode was enabled.
+        let remoteOnly = self.settings.usesRemoteCodexBarProvidersOnly
+        let liveSnapshot = remoteOnly ? self.remoteCodexBarPrimarySnapshots[.codex] : self.snapshots[.codex]
+        let liveError = remoteOnly ? self.remoteCodexBarError : self.errors[.codex]
+        let snapshot = surface == .overrideCard ? snapshotOverride : snapshotOverride ?? liveSnapshot
+        let rawUsageError = surface == .overrideCard ? errorOverride : errorOverride ?? liveError
+        let liveCredits = surface == .overrideCard ? creditsOverride : (remoteOnly ? nil : self.credits)
+        let rawCreditsError = surface == .overrideCard || remoteOnly ? nil : self.lastCreditsError
         let context = CodexConsumerProjection.Context(
             snapshot: snapshot,
             rawUsageError: rawUsageError,
             liveCredits: liveCredits,
             rawCreditsError: rawCreditsError,
-            liveDashboard: self.openAIDashboard,
-            rawDashboardError: self.lastOpenAIDashboardError,
+            liveDashboard: remoteOnly ? nil : self.openAIDashboard,
+            rawDashboardError: remoteOnly ? nil : self.lastOpenAIDashboardError,
             dashboardAttachmentAuthorized: self.openAIDashboardAttachmentAuthorized,
-            dashboardRequiresLogin: self.openAIDashboardRequiresLogin,
+            dashboardRequiresLogin: !remoteOnly && self.openAIDashboardRequiresLogin,
             now: now,
             showOptionalCreditsAndExtraUsage: self.settings.showOptionalCreditsAndExtraUsage)
         return CodexConsumerProjection.make(surface: surface, context: context)

@@ -46,6 +46,12 @@ struct MenuCardCompactAccountRowView: View {
             if let capturedAt = row.lastKnownUsageCapturedAt {
                 details.append(LastKnownUsagePresentation.message(capturedAt: capturedAt, now: now))
             }
+            // Without usable windows the row would otherwise be a bare name; say why it is unavailable.
+            if row.headroomPercent == nil, details.isEmpty,
+               let error = row.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty
+            {
+                details.append(PersonalInfoRedactor.redactEmails(in: error, isEnabled: hidePersonalInfo) ?? error)
+            }
             self.detailLines = details
             self.hasError = row.hasError
             self.showsBestBadge = row.isBestCandidate

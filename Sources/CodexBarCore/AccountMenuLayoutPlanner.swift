@@ -49,6 +49,8 @@ public enum AccountMenuLayoutPlanner {
         public let windowDetails: [WindowDetail]
         public let lastKnownUsageCapturedAt: Date?
         public let hasError: Bool
+        /// The account's error text, so a row without usable windows can say why.
+        public let errorMessage: String?
         public let canActivate: Bool
         /// Marks the inactive account with the most usable headroom — the best
         /// candidate to switch to next. Only healthy accounts qualify.
@@ -167,6 +169,7 @@ public enum AccountMenuLayoutPlanner {
             windowDetails: Array(details),
             lastKnownUsageCapturedAt: account.usesLastKnownUsage ? account.snapshot?.updatedAt : nil,
             hasError: account.error != nil,
+            errorMessage: account.error,
             canActivate: account.canActivate,
             isBestCandidate: isBestCandidate)
     }

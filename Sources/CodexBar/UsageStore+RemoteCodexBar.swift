@@ -64,6 +64,8 @@ extension UsageStore {
             self.remoteCodexBarProviderIDs = projection.providerIDs
             self.remoteCodexBarPrimarySnapshots = projection.primarySnapshots
             self.remoteCodexBarActiveAccountKeys = projection.activeAccountKeys
+            self.remoteCodexBarAccountErrors = projection.accountErrors
+            self.remoteCodexBarLastSuccessfulFetchAt = Date()
             self.remoteCodexBarError = nil
         } catch is CancellationError {
             return
@@ -76,6 +78,8 @@ extension UsageStore {
                 self.remoteCodexBarProviderIDs = []
                 self.remoteCodexBarPrimarySnapshots = [:]
                 self.remoteCodexBarActiveAccountKeys = [:]
+                self.remoteCodexBarAccountErrors = [:]
+                self.remoteCodexBarLastSuccessfulFetchAt = nil
             }
             // Preserve the last successful cards only for a transient failure of this exact configuration.
             self.remoteCodexBarError = error.localizedDescription
@@ -90,6 +94,8 @@ extension UsageStore {
             self.remoteCodexBarProviderIDs = []
             self.remoteCodexBarPrimarySnapshots = [:]
             self.remoteCodexBarActiveAccountKeys = [:]
+            self.remoteCodexBarAccountErrors = [:]
+            self.remoteCodexBarLastSuccessfulFetchAt = nil
         }
         self.remoteCodexBarSnapshotConfigurationID = configurationID
     }
@@ -99,6 +105,8 @@ extension UsageStore {
         self.remoteCodexBarProviderIDs = []
         self.remoteCodexBarPrimarySnapshots = [:]
         self.remoteCodexBarActiveAccountKeys = [:]
+        self.remoteCodexBarAccountErrors = [:]
+        self.remoteCodexBarLastSuccessfulFetchAt = nil
         self.remoteCodexBarError = nil
         self.remoteCodexBarRefreshInFlight = false
         self.remoteCodexBarSnapshotConfigurationID = nil

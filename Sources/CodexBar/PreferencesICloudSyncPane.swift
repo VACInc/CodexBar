@@ -102,6 +102,12 @@ struct ICloudSyncPane: View {
                     .toggleStyle(.checkbox)
                     .disabled(self.settings.remoteCodexBarConfiguration == nil)
 
+                if self.settings.remoteCodexBarConfiguration != nil {
+                    LabeledContent(
+                        L("Last successful fetch"),
+                        value: self.relativeTime(self.store.remoteCodexBarLastSuccessfulFetchAt))
+                }
+
                 if self.settings.remoteCodexBarTokenNeedsAuthorization {
                     Button("Unlock Saved Token") {
                         self.settings.authorizeRemoteCodexBarTokenAccess()
@@ -135,7 +141,8 @@ struct ICloudSyncPane: View {
                     L("Last successful push"),
                     value: self.relativeTime(self.state.status.lastSuccessfulPushAt))
             } header: {
-                Text(L("Status"))
+                // Scoped: these timestamps describe iCloud sync, not the remote server above.
+                Text("iCloud Sync Status")
             }
 
             Section {

@@ -1,0 +1,78 @@
+name: Upstream 0.73.0 baseline tests
+
+on:
+  push:
+    branches: [ci/upstream-0.73.0-baseline]
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  swift-test-macos:
+    # Same runner, Xcode, cache, and sharding as ci.yml swift-test-macos.
+    runs-on: macos-26
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [0, 1]
+        shard-count: [2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.6* ]]
+          /usr/bin/xcodebuild -version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-macos26-arm64-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            swiftpm-macos26-arm64-
+
+      - name: Swift toolchain version
+        run: |
+          set -euo pipefail
+          swift --version
+          swift package --version
+
+      - name: Check app locales and Swift formatting
+        if: ${{ matrix.shard-index == 0 }}
+        run: ./Scripts/lint.sh lint-macos
+
+      - name: Swift Test
+        timeout-minutes: 75
+        run: |
+          touch "$RUNNER_TEMP/codexbar-tests-started"
+          CODEXBAR_TEST_GROUP_SIZE=8 \
+            CODEXBAR_TEST_SUITE_TIMEOUT=120 \
+            CODEXBAR_TEST_RETRY_NON_TIMEOUT_FAILURES=0 \
+            CODEXBAR_TEST_SHARD_INDEX=${{ matrix.shard-index }} \
+            CODEXBAR_TEST_SHARD_COUNT=${{ matrix.shard-count }} \
+            ./Scripts/test.sh
+
+      - name: Provider plugin engine A/B goldens
+        if: ${{ matrix.shard-index == 0 }}
+        run: ./Scripts/test-plugin-engines.sh
+
+      - name: Collect crash reports on failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/codexbar-tests-started" ]]; then
+            python3 Scripts/swift_test_diagnostics.py --since "$RUNNER_TEMP/codexbar-tests-started"
+          fi
+

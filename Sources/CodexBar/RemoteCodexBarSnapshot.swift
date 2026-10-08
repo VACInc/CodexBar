@@ -578,7 +578,7 @@ struct RemoteCodexBarProjection: Sendable {
     private static func rateWindow(_ window: RemoteCodexBarSnapshot.Window) -> RateWindow {
         RateWindow(
             usedPercent: min(100, max(0, window.usedPercent)),
-            windowMinutes: self.windowMinutes(forKind: window.kind),
+            windowMinutes: self.windowMinutes(forKind: window.kind, label: window.label),
             resetsAt: window.resetAt,
             resetDescription: nil)
     }
@@ -588,8 +588,15 @@ struct RemoteCodexBarProjection: Sendable {
     /// The snapshot schema carries no cadence, but Antigravity's quota-summary lanes encode it in their kind
     /// (`-5h` / `-weekly`, the same ids the local probe emits with 300 / 10080 minutes). Its descriptor picks
     /// the session/weekly lanes, switcher indicator, and pace by cadence, so a nil cadence hides all of them.
-    static func windowMinutes(forKind kind: String) -> Int? {
+    /// The served label is the probe's own verdict: it titles a lane "<family> 5-hour" or "<family> weekly"
+    /// only after classifying the bucket's explicit `window`, its id (`gemini_session`, `gemini-5h limit`), or
+    /// its display name. Bucket ids alone miss those shapes, so the label wins and the id suffix is a fallback.
+    static func windowMinutes(forKind kind: String, label: String? = nil) -> Int? {
         guard kind.hasPrefix(self.antigravityQuotaSummaryPrefix) else { return nil }
+        if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            if label.hasSuffix(" 5-hour") { return 300 }
+            if label.hasSuffix(" weekly") { return 7 * 24 * 60 }
+        }
         if kind.hasSuffix("-5h") { return 300 }
         if kind.hasSuffix("-weekly") { return 7 * 24 * 60 }
         return nil

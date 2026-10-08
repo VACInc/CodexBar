@@ -16,6 +16,26 @@ struct RemoteCodexBarAntigravityWindowTests {
         #expect(RemoteCodexBarProjection.windowMinutes(forKind: "claude-weekly-scoped-fable") == nil)
     }
 
+    /// The local probe also classifies `gemini_session`, `gemini-5h limit`, and opaque ids with an explicit
+    /// `window` field; it titles those lanes "Gemini 5-hour" / "Gemini weekly", which the server serves as the
+    /// label. A remote lane must get the same cadence, or a weekly lane falls back to 5-hour pacing.
+    @Test
+    func `antigravity cadence follows the served lane label for ids without a cadence suffix`() {
+        let cases: [(bucket: String, label: String, minutes: Int?)] = [
+            ("gemini_session", "Gemini 5-hour", 300),
+            ("gemini-5h limit", "Gemini 5-hour", 300),
+            ("gemini-allowance", "Gemini weekly", 10080),
+            ("gemini-allowance", "Gemini 5-hour", 300),
+            ("gemini-3.1-pro-high", "Gemini Gemini 3.1 Pro (High)", nil),
+        ]
+        for entry in cases {
+            let kind = "antigravity-quota-summary-" + entry.bucket
+            #expect(RemoteCodexBarProjection.windowMinutes(forKind: kind, label: entry.label) == entry.minutes)
+        }
+        // Only Antigravity quota-summary lanes carry cadence; other providers' labels never infer one.
+        #expect(RemoteCodexBarProjection.windowMinutes(forKind: "weekly", label: "Flash weekly") == nil)
+    }
+
     @Test
     func `remote antigravity card resolves session and weekly windows`() throws {
         let decoder = JSONDecoder()

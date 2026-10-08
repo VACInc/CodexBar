@@ -28,7 +28,10 @@ struct ProviderBarTintContrastTests {
     /// Chromatic brands keep their own color, so the fix only touches bars that were unreadable.
     @Test
     func `chromatic brand colors keep their own bar tint`() {
-        let chromatic: [UsageProvider] = [.codex, .claude, .cursor, .opencodego, .antigravity, .minimax, .ibmbob]
+        // Google-family brands (Gemini lavender, Antigravity green, Vertex AI blue) stay chromatic too.
+        let chromatic: [UsageProvider] = [
+            .codex, .claude, .cursor, .opencodego, .antigravity, .gemini, .vertexai, .minimax, .ibmbob,
+        ]
         for provider in chromatic {
             let color = ProviderDescriptorRegistry.descriptor(for: provider).branding.color
             #expect(

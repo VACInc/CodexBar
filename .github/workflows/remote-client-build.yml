@@ -1,0 +1,147 @@
+name: Remote client build
+
+on:
+  push:
+    branches: [feature/remote-client-0.73]
+  workflow_dispatch:
+
+concurrency:
+  group: remote-client-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  swift-test-macos:
+    # Same runner, Xcode, cache, and sharding as ci.yml swift-test-macos.
+    runs-on: macos-26
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [0, 1]
+        shard-count: [2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.6* ]]
+          /usr/bin/xcodebuild -version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-macos26-arm64-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            swiftpm-macos26-arm64-
+
+      - name: Swift toolchain version
+        run: |
+          set -euo pipefail
+          swift --version
+          swift package --version
+
+      - name: Check app locales and Swift formatting
+        if: ${{ matrix.shard-index == 0 }}
+        run: ./Scripts/lint.sh lint-macos
+
+      - name: Swift Test
+        timeout-minutes: 75
+        run: |
+          touch "$RUNNER_TEMP/codexbar-tests-started"
+          CODEXBAR_TEST_GROUP_SIZE=8 \
+            CODEXBAR_TEST_SUITE_TIMEOUT=120 \
+            CODEXBAR_TEST_RETRY_NON_TIMEOUT_FAILURES=0 \
+            CODEXBAR_TEST_SHARD_INDEX=${{ matrix.shard-index }} \
+            CODEXBAR_TEST_SHARD_COUNT=${{ matrix.shard-count }} \
+            ./Scripts/test.sh
+
+      - name: Provider plugin engine A/B goldens
+        if: ${{ matrix.shard-index == 0 }}
+        run: ./Scripts/test-plugin-engines.sh
+
+      - name: Collect crash reports on failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/codexbar-tests-started" ]]; then
+            python3 Scripts/swift_test_diagnostics.py --since "$RUNNER_TEMP/codexbar-tests-started"
+          fi
+
+  package-arm64:
+    # Matches the remote-client prereleases: release config, ad-hoc signing
+    # (empty SUFeedURL, SUEnableAutomaticChecks=false), arm64 only.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.6* ]]
+          /usr/bin/xcodebuild -version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-macos26-arm64-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            swiftpm-macos26-arm64-
+
+      - name: Package app (ad-hoc, arm64, Sparkle off)
+        env:
+          CODEXBAR_SIGNING: adhoc
+          ARCHES: arm64
+        run: ./Scripts/package_app.sh release
+
+      - name: Verify packaging settings
+        run: |
+          set -euo pipefail
+          plist=CodexBar.app/Contents/Info.plist
+          feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$plist")"
+          checks="$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "$plist")"
+          commit="$(/usr/libexec/PlistBuddy -c 'Print :CodexGitCommit' "$plist")"
+          echo "SUFeedURL='${feed}' SUEnableAutomaticChecks=${checks} CodexGitCommit=${commit}"
+          [[ -z "$feed" && "$checks" == "false" ]]
+          codesign -dv CodexBar.app 2>&1 | grep -E '^(Signature|Identifier|Format)='
+          codesign -dv CodexBar.app 2>&1 | grep -q '^Signature=adhoc$'
+          lipo -archs CodexBar.app/Contents/MacOS/CodexBar
+          codesign --verify --deep --strict CodexBar.app
+
+      - name: Zip and checksum
+        id: zip
+        run: |
+          set -euo pipefail
+          source version.env
+          name="CodexBar-remote-client-${MARKETING_VERSION}-arm64.zip"
+          mkdir -p dist
+          ditto -c -k --keepParent CodexBar.app "dist/${name}"
+          (cd dist && shasum -a 256 "${name}" | tee "${name}.sha256")
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          {
+            printf '### Remote client package\n\n'
+            printf '| File | SHA-256 |\n| --- | --- |\n'
+            printf '| `%s` | `%s` |\n' "${name}" "$(cut -d' ' -f1 "dist/${name}.sha256")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codexbar-remote-client-arm64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

@@ -7,11 +7,14 @@ import Testing
 struct InlineUsageDashboardBarColorTests {
     /// The inline usage bars must be tinted with each provider's branding color (the same color
     /// used by the switcher tab and the detailed cost-history chart) rather than a fixed palette.
+    /// Achromatic brands would vanish into the gray track, so those use the label color.
     @Test
     func `bar color matches branding for every provider`() {
         for provider in UsageProvider.allCases {
             let branding = ProviderDescriptorRegistry.descriptor(for: provider).branding.color
-            let expected = Color(red: branding.red, green: branding.green, blue: branding.blue)
+            let expected = ProviderAccentPalette.usesLabelBarTint(branding)
+                ? Color(nsColor: .labelColor)
+                : Color(red: branding.red, green: branding.green, blue: branding.blue)
             #expect(
                 UsageMenuCardView.Model.inlineDashboardBarColor(for: provider) == expected,
                 "inline bar color did not match branding for \(provider.rawValue)")

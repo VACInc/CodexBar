@@ -1159,6 +1159,9 @@ extension ProviderSwitcherView {
         case let .provider(instanceID):
             guard let provider = instanceID.firstPartyProvider else { return NSColor.secondaryLabelColor }
             let color = ProviderAccentPalette.color(for: provider)
+            if ProviderAccentPalette.usesLabelBarTint(color) {
+                return NSColor.labelColor
+            }
             return NSColor(deviceRed: color.red, green: color.green, blue: color.blue, alpha: 1)
         case .overview:
             return NSColor.secondaryLabelColor

@@ -550,11 +550,11 @@ extension UsageMenuCardView.Model {
 
     static func progressColor(for provider: UsageProvider) -> Color {
         let branding = ProviderDescriptorRegistry.descriptor(for: provider).branding
-        if branding.progressColorStyle == .label {
+        let color = ProviderAccentPalette.color(for: provider)
+        if branding.progressColorStyle == .label || ProviderAccentPalette.usesLabelBarTint(color) {
             return Color(nsColor: .labelColor)
         }
 
-        let color = ProviderAccentPalette.color(for: provider)
         return Color(red: color.red, green: color.green, blue: color.blue)
     }
 

@@ -44,6 +44,15 @@ enum ProviderAccentPalette {
         self.override(for: provider) ?? ProviderDescriptorRegistry.descriptor(for: provider).branding.color
     }
 
+    /// Usage bars sit on a neutral gray track. An achromatic accent (Ollama's #888888, xAI's gray, the
+    /// black brands) blends into that track in light or dark mode, so a full bar reads as empty. Bar
+    /// fills paint those accents with the label color instead, the same as `.label` providers.
+    static func usesLabelBarTint(_ color: ProviderColor) -> Bool {
+        let channels = [color.red, color.green, color.blue]
+        guard let high = channels.max(), let low = channels.min() else { return false }
+        return high - low < 0.1
+    }
+
     static func _test_reset() {
         self.lock.lock()
         self.overrides = [:]

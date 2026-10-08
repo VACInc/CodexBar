@@ -119,6 +119,9 @@ extension UsageMenuCardView.Model {
     /// detailed cost-history chart.
     static func inlineDashboardBarColor(for provider: UsageProvider) -> Color {
         let color = ProviderAccentPalette.color(for: provider)
+        if ProviderAccentPalette.usesLabelBarTint(color) {
+            return Color(nsColor: .labelColor)
+        }
         return Color(red: color.red, green: color.green, blue: color.blue)
     }
 

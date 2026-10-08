@@ -578,9 +578,21 @@ struct RemoteCodexBarProjection: Sendable {
     private static func rateWindow(_ window: RemoteCodexBarSnapshot.Window) -> RateWindow {
         RateWindow(
             usedPercent: min(100, max(0, window.usedPercent)),
-            windowMinutes: nil,
+            windowMinutes: self.windowMinutes(forKind: window.kind),
             resetsAt: window.resetAt,
             resetDescription: nil)
+    }
+
+    private static let antigravityQuotaSummaryPrefix = "antigravity-quota-summary-"
+
+    /// The snapshot schema carries no cadence, but Antigravity's quota-summary lanes encode it in their kind
+    /// (`-5h` / `-weekly`, the same ids the local probe emits with 300 / 10080 minutes). Its descriptor picks
+    /// the session/weekly lanes, switcher indicator, and pace by cadence, so a nil cadence hides all of them.
+    static func windowMinutes(forKind kind: String) -> Int? {
+        guard kind.hasPrefix(self.antigravityQuotaSummaryPrefix) else { return nil }
+        if kind.hasSuffix("-5h") { return 300 }
+        if kind.hasSuffix("-weekly") { return 7 * 24 * 60 }
+        return nil
     }
 
     private static func details(

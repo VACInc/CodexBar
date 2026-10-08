@@ -100,6 +100,26 @@ struct RemoteCodexBarSnapshotTests {
             serverURL: "http://100.100.10.20:9876",
             bearerToken: "token") == nil)
 
+        for host in ["mini.home.arpa", "mini.home.arpa.", "codexbar.internal", "mini.lan"] {
+            let named = try #require(RemoteCodexBarConfiguration.resolve(
+                serverURL: "http://\(host):8484",
+                bearerToken: "token",
+                allowsPlainHTTP: true))
+            #expect(named.snapshotURL.absoluteString == "http://\(host):8484/dashboard/v1/snapshot")
+            #expect(RemoteCodexBarConfiguration.requiresPlainHTTPConsent(serverURL: "http://\(host):8484"))
+            #expect(RemoteCodexBarConfiguration.resolve(
+                serverURL: "http://\(host):8484",
+                bearerToken: "token") == nil)
+        }
+        #expect(ProviderEndpointOverrideValidator().validatedURLAllowingPrivateNetworkHTTP(
+            "http://mini.home.arpa:8484") == nil)
+        for host in ["home.arpa", "evilhome.arpa", "mini.vacinc.us", "lan", "internal.example.com"] {
+            #expect(RemoteCodexBarConfiguration.resolve(
+                serverURL: "http://\(host):8484",
+                bearerToken: "token",
+                allowsPlainHTTP: true) == nil)
+        }
+
         #expect(RemoteCodexBarConfiguration.resolve(
             serverURL: "http://127.0.0.1:9876",
             bearerToken: "token") != nil)

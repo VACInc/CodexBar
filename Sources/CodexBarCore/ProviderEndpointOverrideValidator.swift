@@ -78,8 +78,20 @@ public struct ProviderEndpointOverrideValidator: Sendable {
 
     public func validatedURLAllowingRemoteCodexBarHTTP(_ raw: String?) -> URL? {
         self.validatedURL(raw, allowingHTTPFor: { host in
-            Self.isPrivateNetworkHost(host) || Self.isSharedAddressSpaceHost(host)
+            Self.isPrivateNetworkHost(host) || Self.isSharedAddressSpaceHost(host) ||
+                Self.isPrivateUseDomainHost(host)
         })
+    }
+
+    /// Hostnames under DNS suffixes reserved for private networks (`home.arpa`, RFC 8375; `internal`,
+    /// ICANN 2024) or conventionally used on home LANs (`lan`). These never resolve on the public internet.
+    static let remoteCodexBarPrivateUseDomainSuffixes = ["home.arpa", "internal", "lan"]
+
+    private static func isPrivateUseDomainHost(_ host: String) -> Bool {
+        let hostname = host.hasSuffix(".") ? String(host.dropLast()) : host
+        return self.remoteCodexBarPrivateUseDomainSuffixes.contains { suffix in
+            hostname.hasSuffix(".\(suffix)") && hostname.count > suffix.count + 1
+        }
     }
 
     public func requiresExplicitPlainHTTPConsent(_ raw: String?) -> Bool {

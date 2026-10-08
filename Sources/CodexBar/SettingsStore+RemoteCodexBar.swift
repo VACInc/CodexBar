@@ -177,7 +177,8 @@ extension SettingsStore {
         let raw = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
         guard ProviderEndpointOverrideValidator().validatedURLAllowingRemoteCodexBarHTTP(raw) != nil else {
-            return "Use HTTPS, or HTTP only for loopback, private-network, or Tailscale/CGNAT hosts. " +
+            return "Use HTTPS, or HTTP only for loopback, private-network, Tailscale/CGNAT, " +
+                "or .local/.home.arpa/.internal/.lan hosts. " +
                 "User info is not allowed."
         }
         guard URLComponents(string: raw)?.query == nil, URLComponents(string: raw)?.fragment == nil else {
